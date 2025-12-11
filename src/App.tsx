@@ -1,167 +1,79 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Container, Box, Typography, TextField, Button, Select, MenuItem, 
+import { useState, useEffect } from 'react';
+import {
+  Container, Box, Typography, TextField, Button, Select, MenuItem,
   FormControl, InputLabel, Card, CardContent, IconButton, CircularProgress,
   List, ListItem, ListItemText, ListItemSecondaryAction, Paper, Snackbar, Alert
 } from '@mui/material';
-import { PlayArrow, Pause, Delete, Download, Refresh } from '@mui/icons-material';
-import { get, set } from 'idb-keyval';
-import { getConfig, TTSVoice } from './config';
-
-interface HistoryItem {
-  id: string;
-  text: string;
-  voice: string;
-  blob: Blob; // We store the blob in IDB/memory, but use URL for playback
-  timestamp: number;
-}
-
-// Helper to store only serializable data in IDB (Blob is serializable)
-const DB_KEY = 'tts-history';
+import { PlayArrow, Pause, Delete, Download, LightMode, DarkMode } from '@mui/icons-material';
+import { TTSVoice } from './config';
+import { useColorMode } from './contexts/ThemeContext';
+import { useTTS } from './hooks/useTTS';
+import { useAudioPlayer } from './hooks/useAudioPlayer';
+import { useHistory, HistoryItem } from './hooks/useHistory';
+import { useObjectUrls } from './hooks/useObjectUrls';
 
 function App() {
-  const [config] = useState(getConfig());
+  const { mode, toggleMode } = useColorMode();
+  const { loading, error: ttsError, generate, config } = useTTS();
+  const { playingId, error: audioError, play, pause } = useAudioPlayer();
+  const { history, addItem, removeItem } = useHistory();
+  const { objectUrls, createUrl, revokeUrl } = useObjectUrls();
+
   const [text, setText] = useState('');
   const [voice, setVoice] = useState(config.voices[0]?.id || 'alloy');
-  const [loading, setLoading] = useState(false);
-  const [history, setHistory] = useState<HistoryItem[]>([]);
-  // We keep object URLs in a separate map or just generate them on the fly for the list.
-  // Actually, generating on fly is fine if we have the blob.
-  const [objectUrls, setObjectUrls] = useState<Record<string, string>>({});
-  
-  const [playingId, setPlayingId] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  // Load history on mount
-  useEffect(() => {
-    get<HistoryItem[]>(DB_KEY).then((val) => {
-      if (val) {
-        setHistory(val);
-        // Create URLs for them
-        const urls: Record<string, string> = {};
-        val.forEach(item => {
-          urls[item.id] = URL.createObjectURL(item.blob);
-        });
-        setObjectUrls(urls);
-      }
-    });
-  }, []);
+  const error = ttsError || audioError;
 
-  // Cleanup URLs on unmount
+  // Create object URLs for any history items that don't have them
   useEffect(() => {
-    return () => {
-      Object.values(objectUrls).forEach(url => URL.revokeObjectURL(url));
-    };
-  }, [objectUrls]);
+    if (history.length === 0) return;
+
+    // Find items that don't have URLs yet
+    const itemsNeedingUrls = history.filter(item => !objectUrls[item.id]);
+
+    if (itemsNeedingUrls.length > 0) {
+      // Create URLs only for items that need them
+      itemsNeedingUrls.forEach(item => {
+        createUrl(item.id, item.blob);
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [history]);
 
   const handleGenerate = async () => {
     if (!text.trim()) return;
-    if (!config.endpoint) {
-        setError("Configuration Error: No TTS Endpoint defined.");
-        return;
-    }
 
-    setLoading(true);
-    setError(null);
+    const blob = await generate({ text, voice });
+    if (!blob) return;
 
-    try {
-      const response = await fetch(config.endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: config.model,
-          input: text,
-          voice: voice,
-          format: 'opus', // Requesting opus in ogg
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Server returned ${response.status}: ${response.statusText}`);
-      }
-
-      const blob = await response.blob();
-      // Ensure it has the right type if the server didn't set it
-      const audioBlob = new Blob([blob], { type: 'audio/ogg; codecs=opus' });
-      
-      const newItem: HistoryItem = {
-        id: Date.now().toString(),
-        text,
-        voice,
-        blob: audioBlob,
-        timestamp: Date.now(),
-      };
-
-      const newHistory = [newItem, ...history].slice(0, 5);
-      
-      // Revoke old URLs if we dropped an item
-      if (history.length >= 5) {
-        const dropped = history[4];
-        if (objectUrls[dropped.id]) {
-            URL.revokeObjectURL(objectUrls[dropped.id]);
-        }
-      }
-
-      // Update State
-      const newUrl = URL.createObjectURL(audioBlob);
-      setObjectUrls(prev => ({ ...prev, [newItem.id]: newUrl }));
-      setHistory(newHistory);
-      
-      // Save to IDB
-      await set(DB_KEY, newHistory);
-
-      // Auto-play
-      playAudio(newItem.id, newUrl);
-
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || 'Failed to generate audio');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const playAudio = (id: string, url: string) => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      if (playingId === id) {
-        setPlayingId(null);
-        return;
-      }
-    }
-
-    const audio = new Audio(url);
-    audioRef.current = audio;
-    setPlayingId(id);
-    
-    audio.onended = () => setPlayingId(null);
-    audio.onerror = () => {
-        setError("Error during playback");
-        setPlayingId(null);
+    const newItem: HistoryItem = {
+      id: Date.now().toString(),
+      text,
+      voice,
+      blob,
+      timestamp: Date.now(),
     };
-    
-    audio.play().catch(e => {
-        console.error("Play error", e);
-        setError("Autoplay blocked or failed.");
-    });
+
+    const newHistory = await addItem(newItem);
+
+    // Revoke URL of dropped item if we exceeded max history
+    if (newHistory.length === 5 && history.length === 5) {
+      const droppedId = history[4].id;
+      revokeUrl(droppedId);
+    }
+
+    // Create URL and auto-play
+    const url = createUrl(newItem.id, blob);
+    play(newItem.id, url);
   };
 
   const handleDelete = async (id: string) => {
-    const newHistory = history.filter(h => h.id !== id);
-    setHistory(newHistory);
-    await set(DB_KEY, newHistory);
-    if (objectUrls[id]) {
-        URL.revokeObjectURL(objectUrls[id]);
-        const newUrls = { ...objectUrls };
-        delete newUrls[id];
-        setObjectUrls(newUrls);
-    }
-    if (playingId === id && audioRef.current) {
-        audioRef.current.pause();
-        setPlayingId(null);
+    const removed = await removeItem(id);
+    if (removed) {
+      revokeUrl(id);
+      if (playingId === id) {
+        pause();
+      }
     }
   };
 
@@ -188,9 +100,14 @@ function App() {
         <Typography variant="h4" component="h1" fontWeight="bold">
           Echo TTS
         </Typography>
-        <Typography variant="caption" color="text.secondary">
-          {config.model}
-        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Typography variant="caption" color="text.secondary">
+            {config.model}
+          </Typography>
+          <IconButton onClick={toggleMode} size="small" color="inherit">
+            {mode === 'dark' ? <LightMode /> : <DarkMode />}
+          </IconButton>
+        </Box>
       </Box>
 
       <Card sx={{ mb: 4 }}>
@@ -248,23 +165,54 @@ function App() {
                 </ListItem>
             )}
             {history.map((item) => (
-              <ListItem key={item.id} divider>
+              <ListItem
+                key={item.id}
+                divider
+                sx={{ pr: { xs: 17, sm: 18 } }}
+              >
                 <ListItemText
                   primary={
-                    <Typography variant="body1" noWrap sx={{ maxWidth: '60vw' }}>
+                    <Typography
+                      variant="body1"
+                      noWrap
+                      sx={{
+                        pr: 1,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis'
+                      }}
+                    >
                         {item.text}
                     </Typography>
                   }
                   secondary={`${item.voice} • ${new Date(item.timestamp).toLocaleTimeString()}`}
+                  sx={{ pr: 1 }}
                 />
                 <ListItemSecondaryAction>
-                  <IconButton onClick={() => playAudio(item.id, objectUrls[item.id])}>
+                  <IconButton
+                    onClick={() => {
+                      const url = objectUrls[item.id];
+                      if (url) {
+                        play(item.id, url);
+                      } else {
+                        console.error('[DEBUG] No URL for item:', item.id, 'Available URLs:', Object.keys(objectUrls));
+                      }
+                    }}
+                    size="small"
+                    disabled={!objectUrls[item.id]}
+                  >
                     {playingId === item.id ? <Pause /> : <PlayArrow />}
                   </IconButton>
-                  <IconButton onClick={() => handleDownload(item.id)}>
+                  <IconButton
+                    onClick={() => handleDownload(item.id)}
+                    size="small"
+                  >
                     <Download />
                   </IconButton>
-                  <IconButton edge="end" onClick={() => handleDelete(item.id)}>
+                  <IconButton
+                    edge="end"
+                    onClick={() => handleDelete(item.id)}
+                    size="small"
+                  >
                     <Delete />
                   </IconButton>
                 </ListItemSecondaryAction>
@@ -273,8 +221,8 @@ function App() {
         </List>
       </Paper>
 
-      <Snackbar open={!!error} autoHideDuration={6000} onClose={() => setError(null)}>
-        <Alert onClose={() => setError(null)} severity="error" sx={{ width: '100%' }}>
+      <Snackbar open={!!error} autoHideDuration={6000}>
+        <Alert severity="error" sx={{ width: '100%' }}>
           {error}
         </Alert>
       </Snackbar>

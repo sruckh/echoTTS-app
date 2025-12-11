@@ -17,14 +17,16 @@ Echo TTS provides a clean, intuitive interface for converting text to speech usi
 - **💾 Download Support**: Export generated audio files as `.ogg` (Opus) format
 - **🐳 Docker Ready**: Containerized for internal `shared_net` usage with Nginx Proxy Manager
 - **⚙️ Runtime Configuration**: Change API endpoints and models via environment variables without rebuilding
-- **🎨 Modern UI**: Clean Material-UI interface with dark theme support
+- **🎨 Modern UI**: Clean Material-UI interface with light/dark theme toggle
 - **🔄 Auto-play**: Generated audio plays automatically with fallback handling
+- **🪝 Custom Hooks Architecture**: Modular, reusable React hooks for clean separation of concerns
+- **♻️ Optimized Performance**: Built with React best practices and modern ES2022 features
 
 ## 🏗️ Architecture
 
 ![Architecture Diagram](./docs/diagrams/architecture.svg)
 
-Echo TTS employs a dual-server architecture designed for both development flexibility and production stability:
+Echo TTS employs a dual-server architecture with a modern React hooks-based frontend, designed for both development flexibility and production stability:
 
 ### Production Mode
 - **Express Server** (port 4173): Serves static files and injects runtime environment variables
@@ -36,10 +38,16 @@ Echo TTS employs a dual-server architecture designed for both development flexib
 - **Local File System**: Direct serving of source files
 
 ### Data Flow
-1. User input flows through React components to the TTS service
-2. Audio responses are stored as blobs in IndexedDB
-3. Object URLs are generated for playback and download
-4. History is managed with automatic cleanup of old entries
+1. User input flows through React components to the TTS service via custom hooks
+2. Audio responses are stored as blobs in IndexedDB using atomic operations
+3. Object URLs are generated and managed automatically with cleanup
+4. History is managed with FIFO queue (max 5 items) and automatic persistence
+
+### Frontend Architecture
+- **Custom Hooks**: Modular logic for TTS generation, audio playback, history management, and URL lifecycle
+- **Theme Context**: Dynamic light/dark mode switching with MUI theming
+- **TypeScript**: Full type safety with ES2022 target for modern JavaScript features
+- **State Management**: React hooks with proper memoization and optimization
 
 ## 🚀 Quick Start
 
@@ -177,6 +185,14 @@ curl -X POST http://your-tts-service:8000/v1/audio/speech \
 ```
 echoTTS-app/
 ├── src/                    # React application source
+│   ├── contexts/          # React contexts
+│   │   └── ThemeContext.tsx   # Theme management (light/dark mode)
+│   ├── hooks/             # Custom React hooks
+│   │   ├── index.ts           # Hook exports
+│   │   ├── useAudioPlayer.ts  # Audio playback logic
+│   │   ├── useHistory.ts      # History + IndexedDB management
+│   │   ├── useObjectUrls.ts   # Blob URL lifecycle management
+│   │   └── useTTS.ts          # TTS API integration
 │   ├── App.tsx            # Main application component
 │   ├── config.ts          # Configuration management
 │   ├── main.tsx           # React app initialization
@@ -187,21 +203,34 @@ echoTTS-app/
 ├── docker-compose.yml     # Docker deployment configuration
 ├── Dockerfile             # Container build instructions
 ├── vite.config.ts         # Vite configuration
-└── tsconfig.json          # TypeScript configuration
+└── tsconfig.json          # TypeScript configuration (ES2022)
 ```
 
 ## 🔧 Technical Details
 
 ### State Management
-- **React Hooks**: For component state and lifecycle
-- **IndexedDB**: Persistent storage of audio history via `idb-keyval`
+- **Custom Hooks Architecture**: Modular, composable hooks following React best practices
+  - `useTTS`: TTS API integration with loading and error states
+  - `useAudioPlayer`: Audio playback management with cleanup
+  - `useHistory`: IndexedDB persistence with atomic operations
+  - `useObjectUrls`: Automatic blob URL lifecycle management
+- **Theme Context**: React Context API for light/dark mode theming
+- **IndexedDB**: Persistent storage of audio history via `idb-keyval` v6+
 - **Object URLs**: Efficient audio playback without base64 encoding
 
 ### Audio Handling
 - **Format**: Opus codec in OGG container
-- **Storage**: Binary blobs in IndexedDB
+- **Storage**: Binary blobs in IndexedDB with atomic operations
 - **Playback**: HTML5 Audio API with fallback error handling
 - **Download**: Dynamic anchor element creation
+- **URL Management**: Automatic creation and cleanup to prevent memory leaks
+
+### Modern React Patterns
+- **Custom Hooks**: Separation of concerns with reusable logic
+- **TypeScript**: Full type safety with ES2022 target
+- **Memoization**: Optimized performance with `useMemo` and `useCallback`
+- **Error Boundaries**: Proper error handling throughout the application
+- **Clean Code**: Reduced component complexity (App.tsx: 286 → 198 lines)
 
 ### Environment Injection
 The Express server injects runtime environment variables into `index.html`:
