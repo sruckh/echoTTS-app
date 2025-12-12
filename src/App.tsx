@@ -96,17 +96,46 @@ function App() {
 
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
-      <Box sx={{ mb: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Typography variant="h4" component="h1" fontWeight="bold">
-          Echo TTS
-        </Typography>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Typography variant="caption" color="text.secondary">
-            {config.model}
+      <Box sx={{ mb: 4 }}>
+        <Box 
+          component="img"
+          src="/echo-gemneye-xyz-hero.jpg"
+          alt="Echo TTS Hero"
+          sx={{
+            width: '100%',
+            height: 'auto',
+            maxHeight: '300px',
+            objectFit: 'cover',
+            borderRadius: 4,
+            mb: 3,
+            boxShadow: 3
+          }}
+        />
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Typography 
+            variant="h3" 
+            component="h1" 
+            fontWeight="900"
+            sx={{
+              background: 'linear-gradient(to right, #12c2e9, #c471ed, #f64f59)',
+              backgroundClip: 'text',
+              textFillColor: 'transparent',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              filter: 'drop-shadow(2px 2px 4px rgba(0,0,0,0.2))',
+              letterSpacing: '-0.5px'
+            }}
+          >
+            Echo TTS
           </Typography>
-          <IconButton onClick={toggleMode} size="small" color="inherit">
-            {mode === 'dark' ? <LightMode /> : <DarkMode />}
-          </IconButton>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Typography variant="caption" color="text.secondary">
+              {config.model}
+            </Typography>
+            <IconButton onClick={toggleMode} size="small" color="inherit">
+              {mode === 'dark' ? <LightMode /> : <DarkMode />}
+            </IconButton>
+          </Box>
         </Box>
       </Box>
 
