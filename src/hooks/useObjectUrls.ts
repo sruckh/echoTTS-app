@@ -23,11 +23,8 @@ export function useObjectUrls() {
   }, []);
 
   const createUrl = (id: string, blob: Blob): string => {
-    // Check if we already have a URL for this ID to avoid duplicates
-    if (objectUrls[id]) {
-      return objectUrls[id];
-    }
-    
+    // Always create a new URL to ensure it points to the correct blob
+    // This prevents issues where same ID is reused with different blob content
     const url = URL.createObjectURL(blob);
     setObjectUrls(prev => ({ ...prev, [id]: url }));
     return url;

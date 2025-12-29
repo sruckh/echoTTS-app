@@ -53,7 +53,7 @@ app.get('*', (req, res) => {
     // or just a regex for window.__ENV__ = { ... };
     
     const result = data.replace(
-      /window\.__ENV__\s*=\s*\{[^}]*\};?/s, // Match multiline
+      /window\.__ENV__\s*=\s*\{[\s\S]*?\};?/s, // Match multiline with non-greedy
       envScript
     );
 

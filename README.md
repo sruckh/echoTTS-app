@@ -236,16 +236,36 @@ When creating custom voices:
 
 ### API Request Format
 
-The application sends requests in this format:
+The application sends OpenAI-compatible requests in this format:
 
 ```javascript
 {
   model: "gpt-4o-mini-tts",
   input: "Your text here",
   voice: "alloy",
-  format: "opus"
+  response_format: "mp3"  // OpenAI API standard parameter
 }
 ```
+
+**Note**: The `response_format` parameter follows the OpenAI API specification. Each service may return audio in its native format (MP3, OGG, Opus) regardless of the requested format. The browser's Audio element handles all formats automatically via content-type headers.
+
+### TTS Quality Considerations
+
+When using RunPod-based TTS services (Vibe Voice, Chatterbox):
+
+1. **Text Length Matters**:
+   - ⚠️ **Short text (<100 characters)**: May produce inconsistent voice characteristics
+   - ✅ **Optimal length (500+ characters)**: Best voice accuracy and consistency
+   - This is inherent to the TTS model behavior, not a client-side limitation
+
+2. **Chunking Long Text**:
+   - Use the same seed value for all chunks to maintain voice consistency
+   - Avoid very small chunk sizes (aim for 200+ characters per chunk)
+   - Different chunks without seed control may exhibit slight voice variations
+
+3. **Multi-Service Comparison**:
+   - **EchoTTS**: Direct OpenAI endpoint, works well with any text length
+   - **Vibe Voice/Chatterbox**: RunPod-based, optimized for longer text inputs
 
 ## 🛠️ Development Commands
 
@@ -284,9 +304,9 @@ curl -X POST http://your-tts-service:8000/v1/audio/speech \
     "model": "gpt-4o-mini-tts",
     "input": "Hello, world!",
     "voice": "alloy",
-    "format": "opus"
+    "response_format": "mp3"
   }' \
-  --output test.ogg
+  --output test.mp3
 ```
 
 ## 📁 Project Structure

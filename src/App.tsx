@@ -5,7 +5,7 @@ import {
   List, ListItem, ListItemText, ListItemSecondaryAction, Paper, Snackbar, Alert
 } from '@mui/material';
 import { PlayArrow, Pause, Delete, Download, LightMode, DarkMode } from '@mui/icons-material';
-import { TTSVoice } from './config';
+import { TTSVoice, TTSService } from './config';
 import { useColorMode } from './contexts/ThemeContext';
 import { useTTS } from './hooks/useTTS';
 import { useAudioPlayer } from './hooks/useAudioPlayer';
@@ -20,9 +20,18 @@ function App() {
   const { objectUrls, createUrl, revokeUrl } = useObjectUrls();
 
   const [text, setText] = useState('');
-  const [voice, setVoice] = useState(config.voices[0]?.id || 'alloy');
+  const [voice, setVoice] = useState(config.voices[0]?.id || '');
+  const [selectedService, setSelectedService] = useState<TTSService | undefined>(config.services[0]);
 
   const error = ttsError || audioError;
+
+  // Initialize selected service if not already set
+  useEffect(() => {
+    if (!selectedService && config.services.length > 0) {
+      setSelectedService(config.services[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Create object URLs for any history items that don't have them
   useEffect(() => {
@@ -43,15 +52,20 @@ function App() {
   const handleGenerate = async () => {
     if (!text.trim()) return;
 
-    const blob = await generate({ text, voice });
+    const blob = await generate({
+      text,
+      voice,
+      serviceId: selectedService?.id
+    });
     if (!blob) return;
 
+    const timestamp = Date.now();
     const newItem: HistoryItem = {
-      id: Date.now().toString(),
+      id: `${timestamp}-${Math.random().toString(36).substr(2, 9)}`,
       text,
       voice,
       blob,
-      timestamp: Date.now(),
+      timestamp,
     };
 
     const newHistory = await addItem(newItem);
@@ -91,7 +105,7 @@ function App() {
 
   const handleClear = () => {
     setText('');
-    setVoice(config.voices[0]?.id || 'alloy');
+    setVoice(config.voices[0]?.id || '');
   };
 
   return (
@@ -153,6 +167,24 @@ function App() {
           />
           
           <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+            {config.services.length > 0 && (
+              <FormControl fullWidth>
+                <InputLabel>Service</InputLabel>
+                <Select
+                  value={selectedService?.id || ''}
+                  label="Service"
+                  onChange={(e) => {
+                    const service = config.services.find(s => s.id === e.target.value);
+                    setSelectedService(service);
+                  }}
+                  disabled={loading}
+                >
+                  {config.services.map((s: TTSService) => (
+                    <MenuItem key={s.id} value={s.id}>{s.label}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
             <FormControl fullWidth>
               <InputLabel>Voice</InputLabel>
               <Select
