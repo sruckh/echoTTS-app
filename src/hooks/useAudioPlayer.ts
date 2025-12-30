@@ -19,26 +19,19 @@ export function useAudioPlayer() {
       }
     }
 
-    console.log(`[Audio Player] Playing ID: ${id}, URL: ${url.substring(0, 50)}...`);
     const audio = new Audio(url);
     audioRef.current = audio;
     setPlayingId(id);
     setError(null);
 
-    audio.onloadedmetadata = () => {
-      console.log(`[Audio Player] Loaded - Duration: ${audio.duration}s, ID: ${id}`);
-    };
-
     audio.onended = () => setPlayingId(null);
 
-    audio.onerror = (e) => {
-      console.error('[Audio Player] Error:', e, audio.error);
+    audio.onerror = () => {
       setError('Error during playback');
       setPlayingId(null);
     };
 
-    audio.play().catch(e => {
-      console.error('Play error:', e);
+    audio.play().catch(() => {
       setError('Autoplay blocked or failed');
       setPlayingId(null);
     });

@@ -1,29 +1,51 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Container, Box, Typography, TextField, Button, Select, MenuItem,
   FormControl, InputLabel, Card, CardContent, IconButton, CircularProgress,
   List, ListItem, ListItemText, ListItemSecondaryAction, Paper, Snackbar, Alert
 } from '@mui/material';
-import { PlayArrow, Pause, Delete, Download, LightMode, DarkMode } from '@mui/icons-material';
-import { TTSVoice, TTSService } from './config';
+import { PlayArrow, Pause, Delete, Download, LightMode, DarkMode, Add } from '@mui/icons-material';
+import { TTSService } from './config';
 import { useColorMode } from './contexts/ThemeContext';
 import { useTTS } from './hooks/useTTS';
+import { useAlibabaTTS } from './hooks/useAlibabaTTS';
 import { useAudioPlayer } from './hooks/useAudioPlayer';
 import { useHistory, HistoryItem } from './hooks/useHistory';
 import { useObjectUrls } from './hooks/useObjectUrls';
+import { useAlibabaVoices, AlibabaVoice } from './hooks/useAlibabaVoices';
+import { VoiceCreationDialog } from './components/VoiceCreationDialog';
 
 function App() {
   const { mode, toggleMode } = useColorMode();
-  const { loading, error: ttsError, generate, config } = useTTS();
+  const { loading: httpLoading, error: httpTtsError, generate: httpGenerate, config } = useTTS();
+  const { loading: wsLoading, error: wsTtsError, generate: wsGenerate } = useAlibabaTTS();
   const { playingId, error: audioError, play, pause } = useAudioPlayer();
   const { history, addItem, removeItem } = useHistory();
   const { objectUrls, createUrl, revokeUrl } = useObjectUrls();
+  const {
+    voices: alibabaVoices,
+    loading: voicesLoading,
+    error: voicesError,
+    listVoices,
+    createVoice,
+    clearError: clearVoicesError
+  } = useAlibabaVoices();
 
   const [text, setText] = useState('');
   const [voice, setVoice] = useState(config.voices[0]?.id || '');
   const [selectedService, setSelectedService] = useState<TTSService | undefined>(config.services[0]);
+  const [voiceDialogOpen, setVoiceDialogOpen] = useState(false);
 
-  const error = ttsError || audioError;
+  const loading = httpLoading || wsLoading;
+  const error = httpTtsError || wsTtsError || audioError || voicesError;
+  const isAlibabaService = selectedService?.id === 'alibaba';
+
+  // Load Alibaba voices when service is selected
+  useEffect(() => {
+    if (selectedService?.id === 'alibaba' && alibabaVoices.length === 0) {
+      listVoices();
+    }
+  }, [selectedService?.id, alibabaVoices.length, listVoices]);
 
   // Initialize selected service if not already set
   useEffect(() => {
@@ -50,13 +72,25 @@ function App() {
   }, [history]);
 
   const handleGenerate = async () => {
-    if (!text.trim()) return;
+    if (!text.trim() || !selectedService) return;
 
-    const blob = await generate({
-      text,
-      voice,
-      serviceId: selectedService?.id
-    });
+    let blob: Blob | null = null;
+
+    // Use WebSocket for Alibaba, HTTP for others
+    if (selectedService.id === 'alibaba') {
+      blob = await wsGenerate({
+        text,
+        voice,
+        service: selectedService
+      });
+    } else {
+      blob = await httpGenerate({
+        text,
+        voice,
+        serviceId: selectedService.id
+      });
+    }
+
     if (!blob) return;
 
     const timestamp = Date.now();
@@ -105,8 +139,40 @@ function App() {
 
   const handleClear = () => {
     setText('');
-    setVoice(config.voices[0]?.id || '');
+    setVoice(isAlibabaService ? (alibabaVoices[0]?.voice || '') : (config.voices[0]?.id || ''));
   };
+
+  // Voice creation success handler
+  const handleVoiceCreated = useCallback((voiceId: string) => {
+    setVoice(voiceId);
+    setVoiceDialogOpen(false);
+    clearVoicesError();
+  }, [clearVoicesError]);
+
+  // Get current voices based on service selection
+  const getCurrentVoices = useCallback((): { id: string; label: string }[] => {
+    if (isAlibabaService) {
+      return alibabaVoices.map((v: AlibabaVoice) => {
+        // Extract preferred_name from voice ID format: qwen-tts-vc-{name}-voice-{timestamp}-{hash}
+        const match = v.voice.match(/qwen-tts-vc-(.+?)-voice-/);
+        const displayName = match ? match[1] : v.voice;
+
+        return {
+          id: v.voice,
+          label: displayName // Use extracted preferred_name
+        };
+      });
+    }
+    return config.voices;
+  }, [isAlibabaService, alibabaVoices, config.voices]);
+
+  // Update voice when service changes
+  useEffect(() => {
+    const currentVoices = getCurrentVoices();
+    if (currentVoices.length > 0 && !currentVoices.find(v => v.id === voice)) {
+      setVoice(currentVoices[0].id);
+    }
+  }, [selectedService?.id, getCurrentVoices, voice]);
 
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
@@ -186,17 +252,45 @@ function App() {
               </FormControl>
             )}
             <FormControl fullWidth>
-              <InputLabel>Voice</InputLabel>
-              <Select
-                value={voice}
-                label="Voice"
-                onChange={(e) => setVoice(e.target.value)}
-                disabled={loading}
-              >
-                {config.voices.map((v: TTSVoice) => (
-                  <MenuItem key={v.id} value={v.id}>{v.label}</MenuItem>
-                ))}
-              </Select>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box sx={{ flexGrow: 1 }}>
+                  <InputLabel>Voice</InputLabel>
+                  <Select
+                    value={voice}
+                    label="Voice"
+                    onChange={(e) => setVoice(e.target.value)}
+                    disabled={loading || (isAlibabaService && voicesLoading)}
+                    fullWidth
+                    MenuProps={{
+                      PaperProps: {
+                        style: {
+                          maxHeight: 300, // Limit dropdown height
+                          overflow: 'auto' // Enable scrolling
+                        }
+                      }
+                    }}
+                  >
+                    {getCurrentVoices().map((v: { id: string; label: string }) => (
+                      <MenuItem key={v.id} value={v.id}>{v.label}</MenuItem>
+                    ))}
+                    {isAlibabaService && alibabaVoices.length === 0 && !voicesLoading && (
+                      <MenuItem disabled>No voices yet. Create one below.</MenuItem>
+                    )}
+                  </Select>
+                </Box>
+                {isAlibabaService && (
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={() => setVoiceDialogOpen(true)}
+                    disabled={loading}
+                    startIcon={<Add />}
+                    sx={{ minWidth: 'fit-content', alignSelf: 'flex-end', mb: 1 }}
+                  >
+                    Create
+                  </Button>
+                )}
+              </Box>
             </FormControl>
           </Box>
 
@@ -287,6 +381,18 @@ function App() {
           {error}
         </Alert>
       </Snackbar>
+
+      {/* Voice Creation Dialog for Alibaba */}
+      <VoiceCreationDialog
+        open={voiceDialogOpen}
+        onClose={() => setVoiceDialogOpen(false)}
+        onSuccess={handleVoiceCreated}
+        targetModel={selectedService?.targetModel || 'qwen3-tts-vc-realtime-2025-11-27'}
+        createVoice={createVoice}
+        loading={voicesLoading}
+        error={voicesError}
+        clearError={clearVoicesError}
+      />
     </Container>
   );
 }

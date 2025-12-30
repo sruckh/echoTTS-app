@@ -6,6 +6,8 @@ services:
     networks:
       - shared_net
     # No ports exposed to host as requested (access via Nginx Proxy Manager on shared_net)
+    env_file:
+      - .env
     environment:
       # TTS Model Configuration
       - VITE_TTS_MODEL=${VITE_TTS_MODEL:-tts-1}
@@ -24,7 +26,13 @@ services:
       # Chatterbox Service Configuration
       - VITE_CHATTERBOX_ENDPOINT=${VITE_CHATTERBOX_ENDPOINT:-https://chatterbox-openai-bridge.gemneye.workers.dev/v1/audio/speech}
       - VITE_CHATTERBOX_API_KEY=${VITE_CHATTERBOX_API_KEY:-}
-      
+
+      # Alibaba Cloud Qwen-TTS (Singapore Region)
+      - VITE_ALIBABA_API_KEY=${VITE_ALIBABA_API_KEY:-}
+      - VITE_ALIBABA_VOICE_API=${VITE_ALIBABA_VOICE_API:-https://dashscope-intl.aliyuncs.com/api/v1/services/audio/tts/customization}
+      - VITE_ALIBABA_TTS_MODEL=${VITE_ALIBABA_TTS_MODEL:-qwen3-tts-vc-realtime-2025-11-27}
+      # DEBUG_ALIBABA_WS: use explicit model and logs for troubleshooting.
+
       # Legacy Configuration (for backward compatibility)
       - VITE_OPEN_AI_TTS_ENDPOINT=${VITE_OPEN_AI_TTS_ENDPOINT:-http://openai-tts-service:8000/v1/audio/speech}
       - VITE_OPEN_AI_TTS_MODEL=${VITE_OPEN_AI_TTS_MODEL:-gpt-4o-mini-tts}

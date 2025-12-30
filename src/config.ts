@@ -8,6 +8,8 @@ export interface TTSService {
   label: string;
   endpoint: string;
   apiKey: string;
+  targetModel?: string; // For Alibaba: must match voice cloning model
+  voiceApiUrl?: string; // For Alibaba: voice management API endpoint
 }
 
 export const getConfig = () => {
@@ -64,6 +66,21 @@ export const getConfig = () => {
       label: 'Chatterbox',
       endpoint: chatterboxEndpoint,
       apiKey: chatterboxApiKey || ''
+    });
+  }
+
+  // Alibaba Cloud Qwen-TTS
+  const alibabaApiKey = env.VITE_ALIBABA_API_KEY || importMetaEnv.VITE_ALIBABA_API_KEY;
+  const alibabaVoiceApi = env.VITE_ALIBABA_VOICE_API || importMetaEnv.VITE_ALIBABA_VOICE_API;
+  const alibabaModel = env.VITE_ALIBABA_TTS_MODEL || importMetaEnv.VITE_ALIBABA_TTS_MODEL;
+  if (alibabaApiKey && alibabaVoiceApi && alibabaModel) {
+    services.push({
+      id: 'alibaba',
+      label: 'Alibaba Qwen-TTS',
+      endpoint: 'wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime',
+      apiKey: alibabaApiKey,
+      targetModel: alibabaModel,
+      voiceApiUrl: alibabaVoiceApi
     });
   }
 

@@ -27,3 +27,8 @@ Thumbs.db
 .serena
 IMPLEMENTATION.md
 CLAUDE.md
+
+# Debug and test files
+.debug-python/
+Kim*.wav
+Kim.sh
