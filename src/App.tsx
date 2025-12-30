@@ -180,7 +180,7 @@ function App() {
         <Box 
           component="img"
           src="/echo-gemneye-xyz-hero.jpg"
-          alt="Echo TTS Hero"
+          alt="Echo Voice Studio Hero"
           sx={{
             width: '100%',
             height: 'auto',
@@ -191,22 +191,30 @@ function App() {
             boxShadow: 3
           }}
         />
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
           <Typography 
-            variant="h3" 
+            variant="h4" 
             component="h1" 
             fontWeight="900"
             sx={{
-              background: 'linear-gradient(to right, #12c2e9, #c471ed, #f64f59)',
+              background: 'linear-gradient(to right, #8A2387, #E94057, #F27121)',
               backgroundClip: 'text',
               textFillColor: 'transparent',
               WebkitBackgroundClip: 'text',
               WebkitTextFillColor: 'transparent',
               filter: 'drop-shadow(2px 2px 4px rgba(0,0,0,0.2))',
-              letterSpacing: '-0.5px'
+              letterSpacing: '-1px',
+              fontSize: { 
+                xs: '1.4rem', 
+                sm: '1.8rem', 
+                md: '2.125rem' 
+              },
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis'
             }}
           >
-            Echo TTS
+            Echo: Multi-Model Voice Studio
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <Typography variant="caption" color="text.secondary">

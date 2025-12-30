@@ -1,14 +1,10 @@
-# Echo TTS - Browser Client
+# Echo: Multi-Model Voice Studio - Browser Client
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.2+-blue.svg)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-18.2+-61DAFB.svg)](https://reactjs.org/)
 [![Vite](https://img.shields.io/badge/Vite-5.0+-646CFF.svg)](https://vitejs.dev/)
-[![Material-UI](https://img.shields.io/badge/MUI-5.14+-007FFF.svg)](https://mui.com/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-> A modern React + TypeScript application for OpenAI-compatible Text-to-Speech with dynamic voice creation, user authentication, and audio history management.
-
-Echo TTS provides a comprehensive platform for converting text to speech using any OpenAI-compatible TTS service. Features include dynamic voice creation with admin approval, user authentication via Supabase, persistent audio history storage, and seamless Docker deployment for production environments.
+Echo: Multi-Model Voice Studio provides a comprehensive platform for converting text to speech using multiple state-of-the-art models including EchoTTS, Vibe Voice, Chatterbox, and Alibaba Qwen-TTS. Features include dynamic voice creation, real-time streaming (for supported models), user authentication via Supabase, and persistent audio history.
 
 ## ✨ Features
 
