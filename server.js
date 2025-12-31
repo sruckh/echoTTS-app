@@ -4,6 +4,9 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -159,6 +162,173 @@ app.post('/api/alibaba/voice/delete', async (req, res) => {
   } catch (error) {
     console.error('Alibaba delete voice error:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// Speech-to-Text (STT) Endpoints
+// ============================================================================
+
+// STT Configuration
+const S3_STT_BUCKET = process.env.S3_STT_BUCKET;
+const S3_STT_REGION = process.env.S3_STT_REGION;
+const S3_STT_ACCESS_KEY = process.env.S3_STT_ACCESS_KEY;
+const S3_STT_SECRET_KEY = process.env.S3_STT_SECRET_KEY;
+const S3_STT_ENDPOINT = process.env.S3_STT_ENDPOINT;
+const RUNPOD_STT_ENDPOINT = process.env.RUNPOD_STT_ENDPOINT;
+const RUNPOD_STT_API_KEY = process.env.RUNPOD_STT_API_KEY;
+const STT_MAX_FILE_SIZE = parseInt(process.env.STT_MAX_FILE_SIZE || '104857600', 10); // 100MB default
+
+// Generate presigned URL for S3 upload
+app.post('/api/stt/presign', async (req, res) => {
+  try {
+    const { filename, contentType } = req.body;
+
+    if (!filename || !contentType) {
+      return res.status(400).json({ error: 'Missing filename or contentType' });
+    }
+
+    // Validate content type
+    const allowedTypes = [
+      'audio/m4a',
+      'audio/mp3',
+      'audio/mpeg',
+      'audio/wav',
+      'audio/ogg',
+      'audio/opus',
+      'audio/x-m4a'
+    ];
+
+    if (!allowedTypes.includes(contentType.toLowerCase())) {
+      return res.status(400).json({ error: 'Invalid file type' });
+    }
+
+    // Check S3 configuration
+    if (!S3_STT_BUCKET || !S3_STT_REGION || !S3_STT_ACCESS_KEY || !S3_STT_SECRET_KEY || !S3_STT_ENDPOINT) {
+      console.error('[STT Presign] Missing S3 configuration');
+      return res.status(500).json({ error: 'STT service not configured' });
+    }
+
+    // Generate UUID for filename (use as-is without extension)
+    const uuid = crypto.randomUUID();
+    const key = uuid;
+
+    // Create S3 client
+    const s3Client = new S3Client({
+      region: S3_STT_REGION,
+      endpoint: S3_STT_ENDPOINT,
+      credentials: {
+        accessKeyId: S3_STT_ACCESS_KEY,
+        secretAccessKey: S3_STT_SECRET_KEY,
+      },
+    });
+
+    // Create presigned PUT URL
+    const command = new PutObjectCommand({
+      Bucket: S3_STT_BUCKET,
+      Key: key,
+      ContentType: contentType,
+    });
+
+    const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+
+    console.log(`[STT Presign] Generated presigned URL for ${filename} (UUID: ${uuid})`);
+
+    res.json({
+      uuid,
+      presignedUrl,
+      key
+    });
+
+  } catch (error) {
+    console.error('[STT Presign] Error generating presigned URL:', error);
+    res.status(500).json({ error: 'Failed to generate upload URL' });
+  }
+});
+
+// Transcribe audio via RunPod Serverless
+app.post('/api/stt/transcribe', async (req, res) => {
+  try {
+    const { uuid, timestamp } = req.body;
+
+    if (!uuid) {
+      return res.status(400).json({ error: 'UUID is required' });
+    }
+
+    // Check RunPod configuration
+    if (!RUNPOD_STT_ENDPOINT || !RUNPOD_STT_API_KEY) {
+      console.error('[STT Transcribe] Missing RunPod configuration');
+      return res.status(500).json({ error: 'STT transcription service not configured' });
+    }
+
+    // Check S3 configuration
+    if (!S3_STT_BUCKET || !S3_STT_REGION || !S3_STT_ACCESS_KEY || !S3_STT_SECRET_KEY || !S3_STT_ENDPOINT) {
+      console.error('[STT Transcribe] Missing S3 configuration');
+      return res.status(500).json({ error: 'STT service not configured' });
+    }
+
+    // Generate presigned GET URL for RunPod to download the file
+    const s3Client = new S3Client({
+      region: S3_STT_REGION,
+      endpoint: S3_STT_ENDPOINT,
+      credentials: {
+        accessKeyId: S3_STT_ACCESS_KEY,
+        secretAccessKey: S3_STT_SECRET_KEY,
+      },
+    });
+
+    const getCommand = new GetObjectCommand({
+      Bucket: S3_STT_BUCKET,
+      Key: uuid,
+    });
+
+    // Generate presigned GET URL valid for 1 hour
+    const s3Url = await getSignedUrl(s3Client, getCommand, { expiresIn: 3600 });
+
+    console.log(`[STT Transcribe] Starting transcription for UUID: ${uuid}`);
+    const startTime = Date.now();
+
+    // Call RunPod Serverless
+    const response = await fetch(RUNPOD_STT_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${RUNPOD_STT_API_KEY}`,
+      },
+      body: JSON.stringify({
+        input: {
+          audio_url: s3Url,
+          timestamp: timestamp || false
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[STT Transcribe] RunPod error (${response.status}):`, errorText);
+      return res.status(response.status).json({ error: 'Transcription failed' });
+    }
+
+    const result = await response.json();
+    const duration = Date.now() - startTime;
+
+    // RunPod wraps the actual transcription in an output object
+    const output = result.output || result;
+
+    // Check for success flag in response
+    if (output.success === false) {
+      console.error(`[STT Transcribe] Transcription failed (${duration}ms):`, output);
+      return res.status(500).json({ error: 'Transcription failed', details: output });
+    }
+
+    console.log(`[STT Transcribe] Success (${duration}ms) for UUID: ${uuid}`);
+
+    // Return just the output (contains text, timestamps, success)
+    res.json(output);
+
+  } catch (error) {
+    console.error('[STT Transcribe] Error:', error);
+    res.status(500).json({ error: 'Transcription service unavailable' });
   }
 });
 

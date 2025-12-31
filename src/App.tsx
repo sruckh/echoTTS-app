@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Container, Box, Typography, TextField, Button, Select, MenuItem,
   FormControl, InputLabel, Card, CardContent, IconButton, CircularProgress,
-  List, ListItem, ListItemText, ListItemSecondaryAction, Paper, Snackbar, Alert
+  List, ListItem, ListItemText, ListItemSecondaryAction, Paper, Snackbar, Alert,
+  Tabs, Tab
 } from '@mui/material';
 import { PlayArrow, Pause, Delete, Download, LightMode, DarkMode, Add } from '@mui/icons-material';
 import { TTSService } from './config';
@@ -14,6 +15,7 @@ import { useHistory, HistoryItem } from './hooks/useHistory';
 import { useObjectUrls } from './hooks/useObjectUrls';
 import { useAlibabaVoices, AlibabaVoice } from './hooks/useAlibabaVoices';
 import { VoiceCreationDialog } from './components/VoiceCreationDialog';
+import { STTTab } from './components/STTTab';
 
 function App() {
   const { mode, toggleMode } = useColorMode();
@@ -35,6 +37,7 @@ function App() {
   const [voice, setVoice] = useState(config.voices[0]?.id || '');
   const [selectedService, setSelectedService] = useState<TTSService | undefined>(config.services[0]);
   const [voiceDialogOpen, setVoiceDialogOpen] = useState(false);
+  const [currentTab, setCurrentTab] = useState<'tts' | 'stt'>('tts');
 
   const loading = httpLoading || wsLoading;
   const error = httpTtsError || wsTtsError || audioError || voicesError;
@@ -174,10 +177,14 @@ function App() {
     }
   }, [selectedService?.id, getCurrentVoices, voice]);
 
+  const handleTabChange = (_event: React.SyntheticEvent, newValue: 'tts' | 'stt') => {
+    setCurrentTab(newValue);
+  };
+
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
       <Box sx={{ mb: 4 }}>
-        <Box 
+        <Box
           component="img"
           src="/echo-gemneye-xyz-hero.jpg"
           alt="Echo Voice Studio Hero"
@@ -192,9 +199,9 @@ function App() {
           }}
         />
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
-          <Typography 
-            variant="h4" 
-            component="h1" 
+          <Typography
+            variant="h4"
+            component="h1"
             fontWeight="900"
             sx={{
               background: 'linear-gradient(to right, #8A2387, #E94057, #F27121)',
@@ -204,10 +211,10 @@ function App() {
               WebkitTextFillColor: 'transparent',
               filter: 'drop-shadow(2px 2px 4px rgba(0,0,0,0.2))',
               letterSpacing: '-1px',
-              fontSize: { 
-                xs: '1.4rem', 
-                sm: '1.8rem', 
-                md: '2.125rem' 
+              fontSize: {
+                xs: '1.4rem',
+                sm: '1.8rem',
+                md: '2.125rem'
               },
               whiteSpace: 'nowrap',
               overflow: 'hidden',
@@ -227,7 +234,18 @@ function App() {
         </Box>
       </Box>
 
-      <Card sx={{ mb: 4 }}>
+      {/* Tabs Navigation */}
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+        <Tabs value={currentTab} onChange={handleTabChange}>
+          <Tab label="Text to Speech" value="tts" />
+          <Tab label="Speech to Text" value="stt" />
+        </Tabs>
+      </Box>
+
+      {/* TTS Tab Content */}
+      {currentTab === 'tts' && (
+        <>
+          <Card sx={{ mb: 4 }}>
         <CardContent>
           <TextField
             label="Prompt"
@@ -384,23 +402,28 @@ function App() {
         </List>
       </Paper>
 
-      <Snackbar open={!!error} autoHideDuration={6000}>
-        <Alert severity="error" sx={{ width: '100%' }}>
-          {error}
-        </Alert>
-      </Snackbar>
+          <Snackbar open={!!error} autoHideDuration={6000}>
+            <Alert severity="error" sx={{ width: '100%' }}>
+              {error}
+            </Alert>
+          </Snackbar>
 
-      {/* Voice Creation Dialog for Alibaba */}
-      <VoiceCreationDialog
-        open={voiceDialogOpen}
-        onClose={() => setVoiceDialogOpen(false)}
-        onSuccess={handleVoiceCreated}
-        targetModel={selectedService?.targetModel || 'qwen3-tts-vc-realtime-2025-11-27'}
-        createVoice={createVoice}
-        loading={voicesLoading}
-        error={voicesError}
-        clearError={clearVoicesError}
-      />
+          {/* Voice Creation Dialog for Alibaba */}
+          <VoiceCreationDialog
+            open={voiceDialogOpen}
+            onClose={() => setVoiceDialogOpen(false)}
+            onSuccess={handleVoiceCreated}
+            targetModel={selectedService?.targetModel || 'qwen3-tts-vc-realtime-2025-11-27'}
+            createVoice={createVoice}
+            loading={voicesLoading}
+            error={voicesError}
+            clearError={clearVoicesError}
+          />
+        </>
+      )}
+
+      {/* STT Tab Content */}
+      {currentTab === 'stt' && <STTTab />}
     </Container>
   );
 }

@@ -4,7 +4,7 @@
 [![React](https://img.shields.io/badge/React-18.2+-61DAFB.svg)](https://reactjs.org/)
 [![Vite](https://img.shields.io/badge/Vite-5.0+-646CFF.svg)](https://vitejs.dev/)
 
-Echo: Multi-Model Voice Studio provides a comprehensive platform for converting text to speech using multiple state-of-the-art models including EchoTTS, Vibe Voice, Chatterbox, and Alibaba Qwen-TTS. Features include dynamic voice creation, real-time streaming (for supported models), user authentication via Supabase, and persistent audio history.
+Echo: Multi-Model Voice Studio provides a comprehensive platform for converting text to speech and speech to text using multiple state-of-the-art models including EchoTTS, Vibe Voice, Chatterbox, and Alibaba Qwen-TTS. Features include dynamic voice creation, real-time streaming (for supported models), user authentication via Supabase, STT transcription with timestamp support, and persistent audio history.
 
 ## ✨ Features
 
@@ -21,12 +21,21 @@ Echo: Multi-Model Voice Studio provides a comprehensive platform for converting 
 - **📊 Voice Management**: Dynamic voice listing replacing static configuration, real-time updates
 - **🔒 Quota System**: Fair usage with 20 voice limit per user to prevent abuse
 
+### Speech-to-Text (STT) Features
+- **📝 Audio Transcription**: Upload audio files (.m4a, .mp3, .wav, .ogg, .opus) up to 30 minutes
+- **⏱️ Timestamp Support**: Optional word and segment-level timestamps in transcription output
+- **📤 Direct S3 Upload**: Presigned URLs for secure, direct-to-S3 file uploads
+- **🤖 RunPod Serverless**: NVIDIA Parakeet model for accurate transcription
+- **💬 Copy & Download**: Copy transcription to clipboard or download as .txt file
+- **🖱️ Drag & Drop**: Intuitive file upload with visual feedback
+- **🔓 Open Access**: No authentication required for STT functionality
+
 ### Platform Features
-- **🔐 Supabase Auth**: Secure user authentication with role-based access control
+- **🔐 Supabase Auth**: Secure user authentication with role-based access control (TTS only)
 - **🗃️ Database-Backed**: PostgreSQL-backed voice metadata and request tracking
-- **☁️ Cloud Storage**: S3-compatible storage for raw uploads and processed audio files
+- **☁️ Cloud Storage**: S3-compatible storage for voice files and STT audio uploads
 - **🔧 Runtime Configuration**: Change API endpoints and models via environment variables without rebuilding
-- **🎨 Modern UI**: Clean Material-UI interface with light/dark theme toggle
+- **🎨 Modern UI**: Clean Material-UI interface with tab navigation and light/dark theme toggle
 - **🪝 Custom Hooks Architecture**: Modular, reusable React hooks for clean separation of concerns
 - **♻️ Optimized Performance**: Built with React best practices and modern ES2022 features
 - **🐳 Docker Ready**: Containerized for internal `shared_net` usage with Nginx Proxy Manager
@@ -38,12 +47,12 @@ Echo: Multi-Model Voice Studio provides a comprehensive platform for converting 
 Echo TTS employs a comprehensive multi-service architecture with authentication, database storage, and dynamic voice management:
 
 ### Core Services
-- **Frontend** (React/TypeScript): User interface with authentication and voice management
-- **Express Server** (port 4173): Serves static files and injects runtime environment variables
+- **Frontend** (React/TypeScript): Tab-based UI with TTS, STT, and voice management
+- **Express Server** (port 4173): Serves static files, injects runtime env vars, STT proxy endpoints
 - **TTS Bridge Service**: OpenAI-compatible API endpoint with voice management and Supabase integration
-- **RunPod Serverless**: Audio processing and inference with shared volume access
+- **RunPod Serverless**: TTS audio processing and STT transcription (NVIDIA Parakeet)
 - **Supabase**: Authentication, PostgreSQL database, and real-time subscriptions
-- **S3 Storage**: Raw uploads and processed audio files with lifecycle management
+- **S3 Storage**: Voice files, STT audio uploads with presigned URLs, lifecycle management
 
 ### Deployment Architecture
 - **Docker Container**: Runs on `shared_net` network without host port exposure
