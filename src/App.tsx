@@ -243,9 +243,8 @@ function App() {
       </Box>
 
       {/* TTS Tab Content */}
-      {currentTab === 'tts' && (
-        <>
-          <Card sx={{ mb: 4 }}>
+      <Box sx={{ display: currentTab === 'tts' ? 'block' : 'none' }}>
+        <Card sx={{ mb: 4 }}>
         <CardContent>
           <TextField
             label="Prompt"
@@ -419,11 +418,12 @@ function App() {
             error={voicesError}
             clearError={clearVoicesError}
           />
-        </>
-      )}
+      </Box>
 
       {/* STT Tab Content */}
-      {currentTab === 'stt' && <STTTab />}
+      <Box sx={{ display: currentTab === 'stt' ? 'block' : 'none' }}>
+        <STTTab />
+      </Box>
     </Container>
   );
 }
