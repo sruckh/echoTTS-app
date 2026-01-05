@@ -25,13 +25,15 @@ Thumbs.db
 
 # Project specific
 .serena
-IMPLEMENTATION.md
-CLAUDE.md
-*.md
+
+# Keep these markdown files in repo
 !CLAUDE.md
 !README.md
 !ADD_VOICE.md
 !STT.md
+
+# Ignore all other markdown files
+*.md
 
 # Debug and test files
 .debug-python/
