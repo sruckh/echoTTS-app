@@ -3,12 +3,13 @@ import {
   Container, Box, Typography, TextField, Button, Select, MenuItem,
   FormControl, InputLabel, Card, CardContent, IconButton, CircularProgress,
   List, ListItem, ListItemText, ListItemSecondaryAction, Paper, Snackbar, Alert,
-  Tabs, Tab
+  Tabs, Tab, Switch, FormControlLabel
 } from '@mui/material';
 import { PlayArrow, Pause, Delete, Download, LightMode, DarkMode, Add } from '@mui/icons-material';
 import { TTSService } from './config';
 import { useColorMode } from './contexts/ThemeContext';
 import { useTTS } from './hooks/useTTS';
+import { useStreamingTTS } from './hooks/useStreamingTTS';
 import { useAlibabaTTS } from './hooks/useAlibabaTTS';
 import { useAudioPlayer } from './hooks/useAudioPlayer';
 import { useHistory, HistoryItem } from './hooks/useHistory';
@@ -33,13 +34,32 @@ function App() {
     clearError: clearVoicesError
   } = useAlibabaVoices();
 
+  // Initialize streaming hook
+  const {
+    generateStreaming,
+    isStreaming,
+    chunksReceived
+  } = useStreamingTTS();
+
   const [text, setText] = useState('');
   const [voice, setVoice] = useState(config.voices[0]?.id || '');
   const [selectedService, setSelectedService] = useState<TTSService | undefined>(config.services[0]);
   const [voiceDialogOpen, setVoiceDialogOpen] = useState(false);
   const [currentTab, setCurrentTab] = useState<'tts' | 'stt'>('tts');
+  
+  // Add streaming preference state
+  const [useStreaming, setUseStreaming] = useState(() => {
+    // Check localStorage for saved preference
+    const saved = localStorage.getItem('tts_streaming');
+    return saved ? JSON.parse(saved) : true; // Default to true
+  });
 
-  const loading = httpLoading || wsLoading;
+  // Save streaming preference
+  useEffect(() => {
+    localStorage.setItem('tts_streaming', JSON.stringify(useStreaming));
+  }, [useStreaming]);
+
+  const loading = httpLoading || wsLoading || isStreaming;
   const error = httpTtsError || wsTtsError || audioError || voicesError;
   const isAlibabaService = selectedService?.id === 'alibaba';
 
@@ -77,6 +97,30 @@ function App() {
   const handleGenerate = async () => {
     if (!text.trim() || !selectedService) return;
 
+    // Decision: Streaming or Batch?
+    // We don't stream for Alibaba (WebSocket handled separately)
+    const shouldStream = useStreaming && selectedService.id !== 'alibaba';
+
+    if (shouldStream) {
+      await generateStreaming({
+        text,
+        voice,
+        serviceId: selectedService.id,
+        onError: (error) => {
+          console.error('[App] Streaming failed, falling back to batch:', error);
+          // Fallback to batch
+          handleBatchTTS();
+        }
+      });
+    } else {
+      await handleBatchTTS();
+    }
+  };
+
+  const handleBatchTTS = async () => {
+    if (!selectedService) return;
+    
+    console.log('[App] Using batch TTS mode');
     let blob: Blob | null = null;
 
     // Use WebSocket for Alibaba, HTTP for others
@@ -317,6 +361,30 @@ function App() {
                 )}
               </Box>
             </FormControl>
+          </Box>
+
+          <Box sx={{ mb: 2 }}>
+             <FormControlLabel
+                control={
+                  <Switch
+                    checked={useStreaming}
+                    onChange={(e) => setUseStreaming(e.target.checked)}
+                    disabled={isStreaming || loading}
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography variant="body2">
+                      Stream audio (faster)
+                    </Typography>
+                    {isStreaming && (
+                      <Typography variant="caption" color="primary">
+                        Streaming... ({chunksReceived} chunks)
+                      </Typography>
+                    )}
+                  </Box>
+                }
+              />
           </Box>
 
           <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>

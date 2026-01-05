@@ -27,6 +27,11 @@ Thumbs.db
 .serena
 IMPLEMENTATION.md
 CLAUDE.md
+*.md
+!CLAUDE.md
+!README.md
+!ADD_VOICE.md
+!STT.md
 
 # Debug and test files
 .debug-python/

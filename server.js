@@ -7,6 +7,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import crypto from 'crypto';
+import { Readable } from 'stream';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -162,6 +163,94 @@ app.post('/api/alibaba/voice/delete', async (req, res) => {
   } catch (error) {
     console.error('Alibaba delete voice error:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// Streaming TTS Proxy
+// ============================================================================
+app.post('/api/tts/stream', async (req, res) => {
+  try {
+    const { service, text, voice, stream, input, model } = req.body;
+    
+    // Determine the target endpoint based on service ID
+    let targetEndpoint = '';
+    let apiKey = '';
+
+    // INTERNAL CONTAINER ROUTING: Use container names instead of localhost/public domains
+    if (service === 'echotts' || service === 'default') {
+      // Use the configured endpoint from environment (defaults to public URL if not overridden)
+      // This allows flexibility: can be set to internal container (http://echotts-openai:8000...)
+      // or public URL (https://echotts.gemneye.xyz...) in .env
+      targetEndpoint = process.env.VITE_ECHOTTS_ENDPOINT || 'http://echotts-openai:8000/v1/audio/speech';
+      apiKey = process.env.VITE_ECHOTTS_API_KEY;
+    } else if (service === 'vibevoice') {
+      targetEndpoint = process.env.VITE_VIBEVOICE_ENDPOINT;
+      apiKey = process.env.VITE_VIBEVOICE_API_KEY;
+    } else if (service === 'chatterbox') {
+      targetEndpoint = process.env.VITE_CHATTERBOX_ENDPOINT;
+      apiKey = process.env.VITE_CHATTERBOX_API_KEY;
+    }
+
+    if (!targetEndpoint) {
+      console.error(`[Streaming Proxy] No endpoint found for service: ${service}`);
+      return res.status(400).json({ error: `Service configuration missing for: ${service}` });
+    }
+
+    const headers = {
+      'Content-Type': 'application/json'
+    };
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+
+    // Construct upstream payload (Standard OpenAI Format)
+    // response_format: 'wav' is required as backend rejects 'pcm'.
+    // WAV is essentially PCM with a header, which fits our frontend's raw decoding best among the options.
+    const upstreamPayload = {
+      model: model || 'tts-1',
+      input: input || text,
+      voice: voice,
+      response_format: 'wav',
+      stream: stream !== undefined ? stream : true
+    };
+
+    // Forward the request to the internal backend
+    const response = await fetch(targetEndpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(upstreamPayload)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[Streaming Proxy] Backend error (${response.status}):`, errorText);
+      return res.status(response.status).send(errorText);
+    }
+
+    // Set streaming headers
+    res.setHeader('Content-Type', 'audio/pcm');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    // Node-fetch body is a stream
+    if (response.body) {
+       // @ts-ignore
+       const readable = Readable.fromWeb(response.body);
+       readable.pipe(res);
+    } else {
+       res.end();
+    }
+
+  } catch (error) {
+    console.error('[Streaming Proxy] Fatal Error:', error);
+    // Return detailed error info to the client for debugging
+    res.status(500).json({ 
+      error: 'Streaming proxy failed to reach backend container',
+      details: error.message,
+      code: error.code,
+      cause: error.cause
+    });
   }
 });
 

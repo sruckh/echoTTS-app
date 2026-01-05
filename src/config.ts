@@ -10,6 +10,8 @@ export interface TTSService {
   apiKey: string;
   targetModel?: string; // For Alibaba: must match voice cloning model
   voiceApiUrl?: string; // For Alibaba: voice management API endpoint
+  streamingSupported?: boolean;  // New: indicates if streaming is available
+  streamingEndpoint?: string;     // New: explicit streaming endpoint (optional)
 }
 
 export const getConfig = () => {
@@ -41,7 +43,8 @@ export const getConfig = () => {
       id: 'echotts',
       label: 'EchoTTS',
       endpoint: echottsEndpoint,
-      apiKey: echottsApiKey || ''
+      apiKey: echottsApiKey || '',
+      streamingSupported: true
     });
   }
 
@@ -53,7 +56,8 @@ export const getConfig = () => {
       id: 'vibevoice',
       label: 'Vibe Voice',
       endpoint: vibevoiceEndpoint,
-      apiKey: vibevoiceApiKey || ''
+      apiKey: vibevoiceApiKey || '',
+      streamingSupported: true
     });
   }
 
@@ -65,7 +69,8 @@ export const getConfig = () => {
       id: 'chatterbox',
       label: 'Chatterbox',
       endpoint: chatterboxEndpoint,
-      apiKey: chatterboxApiKey || ''
+      apiKey: chatterboxApiKey || '',
+      streamingSupported: true
     });
   }
 
@@ -80,7 +85,8 @@ export const getConfig = () => {
       endpoint: 'wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime',
       apiKey: alibabaApiKey,
       targetModel: alibabaModel,
-      voiceApiUrl: alibabaVoiceApi
+      voiceApiUrl: alibabaVoiceApi,
+      streamingSupported: false // Uses WebSocket, not SSE
     });
   }
 
@@ -92,7 +98,8 @@ export const getConfig = () => {
         id: 'legacy',
         label: 'Default',
         endpoint: legacyEndpoint,
-        apiKey: ''
+        apiKey: '',
+        streamingSupported: true
       });
     }
   }
