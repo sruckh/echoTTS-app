@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { getServiceById } from '../config';
 
 /**
  * useStreamingTTS Hook
@@ -42,7 +43,7 @@ export function useStreamingTTS() {
     try {
       // Get service configuration from Tier 2 injected env vars
       const services = (window as any).__ENV__?.SERVICES || {};
-      const service = services[serviceId];
+      const service = services[serviceId] || getServiceById(serviceId);
 
       // If service not found in runtime config, check if it's a standard one we can construct
       // This is important for development or when runtime config isn't fully populated
@@ -52,8 +53,12 @@ export function useStreamingTTS() {
       if (service) {
         // Build streaming endpoint URL (Tier 2)
         // Ensure we handle trailing slashes and different base paths
-        const baseUrl = service.endpoint.replace(/\/v1\/audio\/speech\/?$/, '');
-        streamEndpoint = `${baseUrl}/api/tts/stream`;
+        if (service.streamingEndpoint) {
+          streamEndpoint = service.streamingEndpoint;
+        } else {
+          const baseUrl = service.endpoint.replace(/\/v1\/audio\/speech\/?$/, '');
+          streamEndpoint = `${baseUrl}/api/tts/stream`;
+        }
         apiKey = service.apiKey;
       } else {
         // Fallback or explicit construction if needed. 
