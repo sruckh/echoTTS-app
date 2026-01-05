@@ -172,6 +172,7 @@ app.post('/api/alibaba/voice/delete', async (req, res) => {
 app.post('/api/tts/stream', async (req, res) => {
   try {
     const { service, text, voice, stream, input, model } = req.body;
+    const resolvedText = input || text;
     
     // Determine the target endpoint based on service ID
     let targetEndpoint = '';
@@ -197,26 +198,33 @@ app.post('/api/tts/stream', async (req, res) => {
       return res.status(400).json({ error: `Service configuration missing for: ${service}` });
     }
 
-    const headers = {
-      'Content-Type': 'application/json'
-    };
+    const headers = { 'Content-Type': 'application/json' };
     if (apiKey) {
       headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
-    // Construct upstream payload (Standard OpenAI Format)
-    // response_format: 'wav' is required as backend rejects 'pcm'.
-    // WAV is essentially PCM with a header, which fits our frontend's raw decoding best among the options.
-    const upstreamPayload = {
+    const shouldStream = stream !== undefined ? stream : true;
+    const baseUrl = targetEndpoint.replace(/\/v1\/audio\/speech\/?$/, '');
+    const streamEndpoint = `${baseUrl}/api/tts/stream`;
+
+    const upstreamPayload = shouldStream ? {
+      service,
+      text: resolvedText,
+      voice,
+      stream: true,
+      response_format: 'pcm'
+    } : {
       model: model || 'tts-1',
-      input: input || text,
-      voice: voice,
-      response_format: 'wav',
-      stream: stream !== undefined ? stream : true
+      input: resolvedText,
+      voice,
+      response_format: 'mp3',
+      stream: false
     };
 
-    // Forward the request to the internal backend
-    const response = await fetch(targetEndpoint, {
+    const upstreamUrl = shouldStream ? streamEndpoint : targetEndpoint;
+    console.log(`[Streaming Proxy] Forwarding to ${upstreamUrl} (stream=${shouldStream})`);
+
+    const response = await fetch(upstreamUrl, {
       method: 'POST',
       headers,
       body: JSON.stringify(upstreamPayload)
@@ -228,10 +236,12 @@ app.post('/api/tts/stream', async (req, res) => {
       return res.status(response.status).send(errorText);
     }
 
-    // Set streaming headers
-    res.setHeader('Content-Type', 'audio/pcm');
+    // Set headers
     res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
+    if (shouldStream) {
+      res.setHeader('Content-Type', 'audio/pcm');
+      res.setHeader('Connection', 'keep-alive');
+    }
 
     // Node-fetch body is a stream
     if (response.body) {
