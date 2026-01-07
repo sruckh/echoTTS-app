@@ -52,20 +52,20 @@ export function useStreamingTTS() {
       
       if (service) {
         // Build streaming endpoint URL (Tier 2)
-        // Ensure we handle trailing slashes and different base paths
+        // Use OpenAI endpoint with stream=true for raw PCM byte streaming
         if (service.streamingEndpoint) {
           streamEndpoint = service.streamingEndpoint;
         } else {
-          const baseUrl = service.endpoint.replace(/\/v1\/audio\/speech\/?$/, '');
-          streamEndpoint = `${baseUrl}/api/tts/stream`;
+          // Use the standard OpenAI endpoint - stream param in payload enables streaming
+          streamEndpoint = service.endpoint;
         }
         apiKey = service.apiKey;
       } else {
-        // Fallback or explicit construction if needed. 
+        // Fallback or explicit construction if needed.
         // If 'service' is missing, we try a relative path as a last resort
         // which works if the frontend and middleware are on the same domain/proxy
         if (serviceId === 'echotts' || serviceId === 'default') {
-             streamEndpoint = '/api/tts/stream';
+             streamEndpoint = '/v1/audio/speech';
         } else {
              throw new Error(`Service not found for streaming: ${serviceId}`);
         }
