@@ -55,10 +55,9 @@ export function useTTS() {
         model: config.model,
         input: text,
         voice: voice,
-        response_format: 'mp3',
       };
 
-      console.log(`[TTS Request] Service: ${service.id}, Voice: ${voice}, Model: ${config.model}, Format: mp3`);
+      console.log(`[TTS Request] Service: ${service.id}, Voice: ${voice}, Model: ${config.model}`);
       
       const response = await fetch(service.endpoint, {
         method: 'POST',
@@ -67,7 +66,16 @@ export function useTTS() {
       });
 
       if (!response.ok) {
-        throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+        let errorMsg = `Server returned ${response.status}: ${response.statusText}`;
+        try {
+          const errorBody = await response.text();
+          if (errorBody) {
+            errorMsg += ` - ${errorBody}`;
+          }
+        } catch (e) {
+          // Ignore error parsing errors
+        }
+        throw new Error(errorMsg);
       }
 
       const contentType = response.headers.get('content-type');

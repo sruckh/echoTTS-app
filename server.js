@@ -232,7 +232,14 @@ app.post('/api/tts/stream', async (req, res) => {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[Streaming Proxy] Backend error (${response.status}):`, errorText);
+      console.error(`[Streaming Proxy] Backend error (${response.status}) from ${upstreamUrl}:`);
+      console.error(errorText);
+      try {
+        const errorJson = JSON.parse(errorText);
+        console.error('[Streaming Proxy] Parsed Error JSON:', JSON.stringify(errorJson, null, 2));
+      } catch (e) {
+        // Not JSON
+      }
       return res.status(response.status).send(errorText);
     }
 

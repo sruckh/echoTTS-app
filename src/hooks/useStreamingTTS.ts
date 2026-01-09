@@ -129,11 +129,9 @@ export function useStreamingTTS() {
         const { done, value } = await reader.read();
 
         if (done) {
-          console.log(`[Streaming] Stream ended. Remaining buffer: ${buffer.length} bytes`);
           break;
         }
 
-        console.log(`[Streaming] Received ${value.length} bytes, buffer now ${buffer.length + value.length} bytes`);
 
         // Accumulate data
         const newBuffer = new Uint8Array(buffer.length + value.length);
@@ -192,7 +190,6 @@ export function useStreamingTTS() {
             onChunk?.(audioBuffer, totalChunks);
             onProgress?.(Math.min(totalChunks * 5, 95)); // Rough progress
 
-            console.log(`[Streaming] Processed and scheduled chunk ${totalChunks}: ${samplesToProcess} samples (${audioBuffer.duration.toFixed(2)}s)`);
 
             // Update state
             setState(prev => ({
@@ -213,7 +210,6 @@ export function useStreamingTTS() {
 
       // Process any remaining buffer data (the final chunk)
       if (buffer.length >= bytesPerSample) {
-        console.log(`[Streaming] Processing final buffer: ${buffer.length} bytes (${Math.floor(buffer.length / bytesPerSample)} samples)`);
 
         const remainingSamples = Math.floor(buffer.length / bytesPerSample);
         const float32Array = new Float32Array(remainingSamples);
@@ -246,18 +242,15 @@ export function useStreamingTTS() {
         totalChunks++;
         totalSamples += remainingSamples;
 
-        console.log(`[Streaming] Scheduled final chunk ${totalChunks}: ${remainingSamples} samples (${audioBuffer.duration.toFixed(2)}s) at ${scheduleTime.toFixed(2)}s`);
 
         onChunk?.(audioBuffer, totalChunks);
       } else {
-        console.log(`[Streaming] No remaining buffer to process (${buffer.length} bytes)`);
       }
 
       // Calculate total duration based on when the last chunk ends
       // Use the audio context's sample rate for accurate duration calculation
       const calculatedDuration = totalSamples / audioContext.sampleRate;
 
-      console.log(`[Streaming] Complete: ${totalChunks} chunks, ${totalSamples} samples, ${calculatedDuration.toFixed(2)}s at ${audioContext.sampleRate}Hz`);
 
       setState(prev => ({
         ...prev,
