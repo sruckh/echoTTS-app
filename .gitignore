@@ -39,3 +39,6 @@ Thumbs.db
 .debug-python/
 Kim*.wav
 Kim.sh
+
+# Local scratch
+tmp/
