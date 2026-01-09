@@ -51,19 +51,13 @@ export function useStreamingTTS() {
       let apiKey = '';
       
       if (service) {
-        // Build streaming endpoint URL (Tier 2)
-        // Use OpenAI endpoint with stream=true for raw PCM byte streaming
-        if (service.streamingEndpoint) {
-          streamEndpoint = service.streamingEndpoint;
-        } else {
-          // Use the standard OpenAI endpoint - stream param in payload enables streaming
-          streamEndpoint = service.endpoint;
-        }
+        // Use the OpenAI TTS endpoint with stream=true for raw PCM byte streaming
+        // The worker's /v1/audio/speech endpoint handles streaming when stream=true
+        // This returns raw audio bytes, not SSE
+        streamEndpoint = service.endpoint;
         apiKey = service.apiKey;
       } else {
-        // Fallback or explicit construction if needed.
-        // If 'service' is missing, we try a relative path as a last resort
-        // which works if the frontend and middleware are on the same domain/proxy
+        // Fallback or explicit construction if needed
         if (serviceId === 'echotts' || serviceId === 'default') {
              streamEndpoint = '/v1/audio/speech';
         } else {
@@ -74,21 +68,20 @@ export function useStreamingTTS() {
       const headers: Record<string, string> = {
         'Content-Type': 'application/json'
       };
-      
+
       if (apiKey) {
         headers['Authorization'] = `Bearer ${apiKey}`;
       }
 
-      // Transform payload to OpenAI format
-      // Service expects: model, input, voice, response_format (optional)
-      // Proxy (server.js) expects: service (for routing)
+      // Transform payload to OpenAI TTS format
+      // The /v1/audio/speech endpoint expects: model, input, voice, stream, response_format
+      // Use response_format='pcm' to get raw PCM bytes instead of MP3
       const payload = {
-        service: serviceId, // Required for proxy routing
-        model: 'tts-1', // Default model, or get from config if available
+        model: 'tts-1',
         input: text,
-        text: text,
         voice: voice,
-        stream: true
+        stream: true,
+        response_format: 'pcm'  // Request raw PCM output (not MP3)
       };
 
       const response = await fetch(streamEndpoint, {
@@ -98,14 +91,23 @@ export function useStreamingTTS() {
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
+        let errorMsg = `HTTP ${response.status}: ${response.statusText}`;
+        try {
+          const errorText = await response.text();
+          if (errorText) {
+            errorMsg += ` - ${errorText}`;
+          }
+        } catch (e) {
+          // Ignore error parsing errors
+        }
+        throw new Error(errorMsg);
       }
 
-      // Create audio context for playback (48kHz to match Tier 2 output)
-      // We use a new context or reuse? creating new one per generation ensures clean state.
+      // Create audio context for playback
+      // Let the browser choose the sample rate - do NOT force 48kHz or 24kHz
+      // The Web Audio API will handle sample rate conversion automatically
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      const audioContext = new AudioContextClass({ sampleRate: 48000 });
+      const audioContext = new AudioContextClass();
       const sources: AudioBufferSourceNode[] = [];
       let startTime = 0;
       let totalChunks = 0;
@@ -127,8 +129,11 @@ export function useStreamingTTS() {
         const { done, value } = await reader.read();
 
         if (done) {
+          console.log(`[Streaming] Stream ended. Remaining buffer: ${buffer.length} bytes`);
           break;
         }
+
+        console.log(`[Streaming] Received ${value.length} bytes, buffer now ${buffer.length + value.length} bytes`);
 
         // Accumulate data
         const newBuffer = new Uint8Array(buffer.length + value.length);
@@ -158,8 +163,8 @@ export function useStreamingTTS() {
               float32Array[i] = signedSample / 32768.0;
             }
 
-            // Create audio buffer
-            const audioBuffer = audioContext.createBuffer(1, samplesToProcess, 48000);
+            // Create audio buffer with the audio context's sample rate
+            const audioBuffer = audioContext.createBuffer(1, samplesToProcess, audioContext.sampleRate);
             audioBuffer.copyToChannel(float32Array, 0);
 
             // Schedule playback
@@ -168,16 +173,16 @@ export function useStreamingTTS() {
             source.connect(audioContext.destination);
 
             if (startTime === 0) {
-              // Start slightly in the future to allow scheduling? 
-              // 0 means "as soon as possible"
+              // Start slightly in the future to allow scheduling
               startTime = audioContext.currentTime + 0.1; // Small buffer
-              source.start(startTime);
-            } else {
-              source.start(startTime);
             }
-            
+
+            // Ensure schedule time is not in the past
+            const scheduleTime = Math.max(startTime, audioContext.currentTime);
+            source.start(scheduleTime);
+
             // Advance start time for next chunk
-            startTime += audioBuffer.duration;
+            startTime = scheduleTime + audioBuffer.duration;
 
             sources.push(source);
             totalChunks++;
@@ -186,6 +191,8 @@ export function useStreamingTTS() {
             // Callbacks
             onChunk?.(audioBuffer, totalChunks);
             onProgress?.(Math.min(totalChunks * 5, 95)); // Rough progress
+
+            console.log(`[Streaming] Processed and scheduled chunk ${totalChunks}: ${samplesToProcess} samples (${audioBuffer.duration.toFixed(2)}s)`);
 
             // Update state
             setState(prev => ({
@@ -204,10 +211,53 @@ export function useStreamingTTS() {
         }
       }
 
+      // Process any remaining buffer data (the final chunk)
+      if (buffer.length >= bytesPerSample) {
+        console.log(`[Streaming] Processing final buffer: ${buffer.length} bytes (${Math.floor(buffer.length / bytesPerSample)} samples)`);
+
+        const remainingSamples = Math.floor(buffer.length / bytesPerSample);
+        const float32Array = new Float32Array(remainingSamples);
+
+        // Convert 16-bit PCM to Float32 for Web Audio API
+        for (let i = 0; i < remainingSamples; i++) {
+          const byteIndex = i * 2;
+          const sample = (buffer[byteIndex] | (buffer[byteIndex + 1] << 8));
+          const signedSample = sample >= 32768 ? sample - 65536 : sample;
+          float32Array[i] = signedSample / 32768.0;
+        }
+
+        // Create and schedule final audio buffer
+        const audioBuffer = audioContext.createBuffer(1, remainingSamples, audioContext.sampleRate);
+        audioBuffer.copyToChannel(float32Array, 0);
+
+        const source = audioContext.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(audioContext.destination);
+
+        if (startTime === 0) {
+          startTime = audioContext.currentTime + 0.1;
+        }
+        // Ensure schedule time is not in the past
+        const scheduleTime = Math.max(startTime, audioContext.currentTime);
+        source.start(scheduleTime);
+        startTime = scheduleTime + audioBuffer.duration;
+
+        sources.push(source);
+        totalChunks++;
+        totalSamples += remainingSamples;
+
+        console.log(`[Streaming] Scheduled final chunk ${totalChunks}: ${remainingSamples} samples (${audioBuffer.duration.toFixed(2)}s) at ${scheduleTime.toFixed(2)}s`);
+
+        onChunk?.(audioBuffer, totalChunks);
+      } else {
+        console.log(`[Streaming] No remaining buffer to process (${buffer.length} bytes)`);
+      }
+
       // Calculate total duration based on when the last chunk ends
-      // Note: audioContext.currentTime continues to run
-      // Simplified: Just use the accumulated duration
-      const calculatedDuration = totalSamples / 48000;
+      // Use the audio context's sample rate for accurate duration calculation
+      const calculatedDuration = totalSamples / audioContext.sampleRate;
+
+      console.log(`[Streaming] Complete: ${totalChunks} chunks, ${totalSamples} samples, ${calculatedDuration.toFixed(2)}s at ${audioContext.sampleRate}Hz`);
 
       setState(prev => ({
         ...prev,
