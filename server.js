@@ -207,54 +207,90 @@ app.post('/api/tts/stream', async (req, res) => {
     const baseUrl = targetEndpoint.replace(/\/v1\/audio\/speech\/?$/, '');
     const streamEndpoint = `${baseUrl}/api/tts/stream`;
 
-    const upstreamPayload = shouldStream ? {
-      service,
-      text: resolvedText,
-      voice,
-      stream: true,
-      response_format: 'pcm'
-    } : {
-      model: model || 'tts-1',
-      input: resolvedText,
-      voice,
-      response_format: 'mp3',
-      stream: false
-    };
+    // UNIFIED CONTRACT: All services return MP3 (audio/mpeg)
+    let upstreamPayload;
+    let upstreamUrl;
 
-    const upstreamUrl = shouldStream ? streamEndpoint : targetEndpoint;
-    console.log(`[Streaming Proxy] Forwarding to ${upstreamUrl} (stream=${shouldStream})`);
+    if (service === 'echotts' || service === 'default') {
+      // EchoTTS: OpenAI-style API
+      upstreamUrl = targetEndpoint;
+      upstreamPayload = {
+        model: model || 'tts-1',
+        input: resolvedText,
+        voice,
+        response_format: 'mp3'
+      };
+    } else if (service === 'chatterbox') {
+      // Chatterbox: Always uses /v1/audio/speech, stream flag controls mode
+      upstreamUrl = targetEndpoint;
+      upstreamPayload = {
+        model: model || 'tts-1',
+        input: resolvedText,
+        voice,
+        stream: shouldStream,
+        response_format: 'mp3'
+      };
+    } else {
+      // VibeVoice: Always uses /v1/audio/speech, stream flag controls mode
+      upstreamUrl = targetEndpoint;
+      upstreamPayload = {
+        model: model || 'tts-1',
+        input: resolvedText,
+        voice,
+        stream: shouldStream,
+        response_format: 'mp3'
+      };
+    }
+
+    console.log(`[Streaming Proxy] Forwarding to ${upstreamUrl} (format=mp3, stream=${shouldStream})`);
+
+    // Increase fetch timeout to 5 minutes for streaming
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 300000);
 
     const response = await fetch(upstreamUrl, {
       method: 'POST',
       headers,
-      body: JSON.stringify(upstreamPayload)
+      body: JSON.stringify(upstreamPayload),
+      signal: controller.signal
     });
+
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[Streaming Proxy] Backend error (${response.status}) from ${upstreamUrl}:`);
-      console.error(errorText);
-      try {
-        const errorJson = JSON.parse(errorText);
-        console.error('[Streaming Proxy] Parsed Error JSON:', JSON.stringify(errorJson, null, 2));
-      } catch (e) {
-        // Not JSON
-      }
+      console.error(`[Streaming Proxy] Backend error (${response.status}) from ${upstreamUrl}`);
       return res.status(response.status).send(errorText);
     }
 
-    // Set headers
+    // Pass through headers from upstream bridge (specifically Content-Type: audio/mpeg)
     res.setHeader('Cache-Control', 'no-cache');
+    const upstreamContentType = response.headers.get('content-type');
+    res.setHeader('Content-Type', upstreamContentType || 'audio/mpeg');
+    
     if (shouldStream) {
-      res.setHeader('Content-Type', 'audio/pcm');
       res.setHeader('Connection', 'keep-alive');
     }
 
-    // Node-fetch body is a stream
+    // Transparent stream pipe - wait for completion
     if (response.body) {
        // @ts-ignore
        const readable = Readable.fromWeb(response.body);
-       readable.pipe(res);
+
+       return new Promise((resolve, reject) => {
+         readable.pipe(res);
+
+         readable.on('end', () => {
+           console.log('[Streaming Proxy] Stream completed successfully');
+           res.end();
+           resolve();
+         });
+
+         readable.on('error', (err) => {
+           console.error('[Streaming Proxy] Stream error:', err);
+           reject(err);
+         });
+       });
     } else {
        res.end();
     }

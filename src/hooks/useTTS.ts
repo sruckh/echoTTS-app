@@ -42,26 +42,24 @@ export function useTTS() {
     setError(null);
 
     try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-
-      // Add Authorization header if API key is present
-      if (service.apiKey) {
-        headers['Authorization'] = `Bearer ${service.apiKey}`;
-      }
-
+      // Route through server-side proxy to avoid CORS issues
+      // The proxy handles backend authentication and routing
       const requestBody = {
-        model: config.model,
-        input: text,
+        service: service.id,
+        text: text,
         voice: voice,
+        model: config.model,
+        stream: false,
+        response_format: 'mp3'
       };
 
       console.log(`[TTS Request] Service: ${service.id}, Voice: ${voice}, Model: ${config.model}`);
-      
-      const response = await fetch(service.endpoint, {
+
+      const response = await fetch('/api/tts/stream', {
         method: 'POST',
-        headers,
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify(requestBody),
       });
 
