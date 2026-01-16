@@ -263,36 +263,55 @@ app.post('/api/tts/stream', async (req, res) => {
       return res.status(response.status).send(errorText);
     }
 
-    // Pass through headers from upstream bridge (specifically Content-Type: audio/mpeg)
-    res.setHeader('Cache-Control', 'no-cache');
-    const upstreamContentType = response.headers.get('content-type');
-    res.setHeader('Content-Type', upstreamContentType || 'audio/mpeg');
-    
+    // Handle streaming vs batch responses differently
     if (shouldStream) {
+      // Streaming: Return raw audio bytes
+      res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
-    }
+      const upstreamContentType = response.headers.get('content-type');
+      res.setHeader('Content-Type', upstreamContentType || 'audio/mpeg');
 
-    // Transparent stream pipe - wait for completion
-    if (response.body) {
-       // @ts-ignore
-       const readable = Readable.fromWeb(response.body);
+      if (response.body) {
+         // @ts-ignore
+         const readable = Readable.fromWeb(response.body);
 
-       return new Promise((resolve, reject) => {
-         readable.pipe(res);
+         return new Promise((resolve, reject) => {
+           readable.pipe(res);
 
-         readable.on('end', () => {
-           console.log('[Streaming Proxy] Stream completed successfully');
-           res.end();
-           resolve();
+           readable.on('end', () => {
+             console.log('[Streaming Proxy] Stream completed successfully');
+             res.end();
+             resolve();
+           });
+
+           readable.on('error', (err) => {
+             console.error('[Streaming Proxy] Stream error:', err);
+             reject(err);
+           });
          });
-
-         readable.on('error', (err) => {
-           console.error('[Streaming Proxy] Stream error:', err);
-           reject(err);
-         });
-       });
+      } else {
+         res.end();
+      }
     } else {
-       res.end();
+      // Batch: Return JSON with audio_url or audio_base64
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await response.json();
+        console.log('[Streaming Proxy] Batch response:', { audio_url: !!data.audio_url, audio_base64: !!data.audio_base64 });
+        res.json(data);
+      } else {
+        // Fallback: pipe non-JSON responses (e.g., direct audio)
+        const upstreamContentType = response.headers.get('content-type');
+        res.setHeader('Content-Type', upstreamContentType || 'audio/mpeg');
+
+        if (response.body) {
+           // @ts-ignore
+           const readable = Readable.fromWeb(response.body);
+           readable.pipe(res);
+        } else {
+           res.end();
+        }
+      }
     }
 
   } catch (error) {
