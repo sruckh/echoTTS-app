@@ -106,8 +106,7 @@ function App() {
         text,
         voice,
         serviceId: selectedService.id,
-        onError: (error) => {
-          console.error('[App] Streaming failed, falling back to batch:', error);
+        onError: (_error) => {
           // Fallback to batch
           handleBatchTTS();
         }
@@ -119,8 +118,7 @@ function App() {
 
   const handleBatchTTS = async () => {
     if (!selectedService) return;
-    
-    console.log('[App] Using batch TTS mode');
+
     let blob: Blob | null = null;
 
     // Use WebSocket for Alibaba, HTTP for others

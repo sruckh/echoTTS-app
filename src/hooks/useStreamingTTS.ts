@@ -80,7 +80,6 @@ export function useStreamingTTS() {
       await playMp3Stream(response.body, setState, stopRef, onProgress, onComplete);
 
     } catch (error) {
-      console.error('[Streaming] Error:', error);
       setState(prev => ({ ...prev, isStreaming: false }));
       onError?.(error as Error);
     }
@@ -150,7 +149,6 @@ async function playMp3Stream(
           try {
             sourceBuffer.appendBuffer(chunk as unknown as BufferSource);
           } catch (e) {
-            console.error('[Streaming] Append error:', e);
             isAppending = false;
           }
         };
@@ -158,10 +156,10 @@ async function playMp3Stream(
         sourceBuffer.addEventListener('updateend', () => {
           isAppending = false;
           processQueue();
-          
+
           // Start playback automatically when we have enough data
           if (audio.paused && sourceBuffer.buffered.length > 0 && audio.readyState >= 2) {
-             audio.play().catch(e => console.warn('Autoplay prevented:', e));
+             audio.play().catch(() => {}); // Ignore autoplay errors
           }
         });
 
@@ -211,7 +209,6 @@ async function playMp3Stream(
         }, 100);
 
       } catch (e) {
-        console.error('[Streaming] SourceOpen error:', e);
         reject(e);
       }
     });
@@ -223,14 +220,9 @@ async function playMp3Stream(
       resolve();
     };
 
-    audio.onerror = (e) => {
-      // Check for actual fatal errors - transient MSE errors are common and playback may still work
-      const mediaError = audio.error;
-      if (mediaError && mediaError.code !== mediaError.MEDIA_ERR_ABORTED) {
-        // Only log/ reject for non-abort errors (abort errors are often from cleanup/stop)
-        console.warn('[Streaming] Audio error (may be transient):', e);
-        // Don't reject - let onended handle completion if playback succeeds
-      }
+    audio.onerror = (_e) => {
+      // Transient MSE errors are common and playback may still work
+      // Don't reject - let onended handle completion if playback succeeds
     };
   });
 }

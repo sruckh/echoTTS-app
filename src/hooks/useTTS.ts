@@ -53,8 +53,6 @@ export function useTTS() {
         response_format: 'mp3'
       };
 
-      console.log(`[TTS Request] Service: ${service.id}, Voice: ${voice}, Model: ${config.model}`);
-
       const response = await fetch('/api/tts/stream', {
         method: 'POST',
         headers: {
@@ -76,11 +74,7 @@ export function useTTS() {
         throw new Error(errorMsg);
       }
 
-      const contentType = response.headers.get('content-type');
-      console.log(`[TTS Response] Service: ${service.id}, Content-Type: ${contentType}, Size: ${response.headers.get('content-length') || 'unknown'}`);
-
       const blob = await response.blob();
-      console.log(`[TTS Blob] Service: ${service.id}, Blob Type: ${blob.type}, Size: ${blob.size}`);
 
       // Use the actual content type from the response instead of overriding it
       const audioBlob = blob;
@@ -88,7 +82,6 @@ export function useTTS() {
       return audioBlob;
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to generate audio';
-      console.error('TTS generation error:', err);
       setError(errorMessage);
       return null;
     } finally {
