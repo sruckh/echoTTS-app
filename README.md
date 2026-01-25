@@ -4,7 +4,7 @@
 [![React](https://img.shields.io/badge/React-18.2+-61DAFB.svg)](https://reactjs.org/)
 [![Vite](https://img.shields.io/badge/Vite-5.0+-646CFF.svg)](https://vitejs.dev/)
 
-Echo: Multi-Model Voice Studio provides a comprehensive platform for converting text to speech and speech to text using multiple state-of-the-art models including EchoTTS, Vibe Voice, Chatterbox, and Alibaba Qwen-TTS. Features include dynamic voice creation, real-time streaming (for supported models), user authentication via Supabase, STT transcription with timestamp support, and persistent audio history.
+Echo: Multi-Model Voice Studio provides a comprehensive platform for converting text to speech, speech to text, and voice changing using multiple state-of-the-art models including EchoTTS, Vibe Voice, Chatterbox, and Alibaba Qwen-TTS. Features include dynamic voice creation, real-time streaming (for supported models), user authentication via Supabase, STT transcription with timestamp support, voice changing with LinaCodec VC, and persistent audio history.
 
 ## ✨ Features
 
@@ -30,10 +30,21 @@ Echo: Multi-Model Voice Studio provides a comprehensive platform for converting 
 - **🖱️ Drag & Drop**: Intuitive file upload with visual feedback
 - **🔓 Open Access**: No authentication required for STT functionality
 
+### Voice Changing Features
+- **🎭 Voice Conversion**: Transform source audio with target voice timbre using AI
+- **🎤 Dual Audio Input**: Upload or record source (content) and target (voice) audio files
+- **📤 S3 Upload Pipeline**: Direct S3 uploads with presigned URLs for both audio inputs
+- **🤖 RunPod Serverless**: LinaCodec VC model for voice conversion processing
+- **🎵 Audio Formats**: Supports .m4a, .mp3, .wav, .ogg, .opus, and .webm (recordings)
+- **🖱️ Drag & Drop + Recording**: File upload with visual feedback or direct microphone recording
+- **💾 Download Results**: Play and download converted audio output
+- **⏳ Progress Tracking**: Real-time upload and processing progress indicators
+- **🔓 Open Access**: No authentication required for voice changing
+
 ### Platform Features
 - **🔐 Supabase Auth**: Secure user authentication with role-based access control (TTS only)
 - **🗃️ Database-Backed**: PostgreSQL-backed voice metadata and request tracking
-- **☁️ Cloud Storage**: S3-compatible storage for voice files and STT audio uploads
+- **☁️ Cloud Storage**: S3-compatible storage for voice files, STT, and Voice Changing audio uploads
 - **🔧 Runtime Configuration**: Change API endpoints and models via environment variables without rebuilding
 - **🎨 Modern UI**: Clean Material-UI interface with tab navigation and light/dark theme toggle
 - **🪝 Custom Hooks Architecture**: Modular, reusable React hooks for clean separation of concerns
@@ -47,12 +58,12 @@ Echo: Multi-Model Voice Studio provides a comprehensive platform for converting 
 Echo TTS employs a comprehensive multi-service architecture with authentication, database storage, and dynamic voice management:
 
 ### Core Services
-- **Frontend** (React/TypeScript): Tab-based UI with TTS, STT, and voice management
-- **Express Server** (port 4173): Serves static files, injects runtime env vars, STT proxy endpoints
+- **Frontend** (React/TypeScript): Tab-based UI with TTS, STT, Voice Changing, and voice management
+- **Express Server** (port 4173): Serves static files, injects runtime env vars, STT/Voice Changing proxy endpoints
 - **TTS Bridge Service**: OpenAI-compatible API endpoint with voice management and Supabase integration
-- **RunPod Serverless**: TTS audio processing and STT transcription (NVIDIA Parakeet)
+- **RunPod Serverless**: TTS audio processing, STT transcription (NVIDIA Parakeet), Voice Changing (LinaCodec VC)
 - **Supabase**: Authentication, PostgreSQL database, and real-time subscriptions
-- **S3 Storage**: Voice files, STT audio uploads with presigned URLs, lifecycle management
+- **S3 Storage**: Voice files, STT/Voice Changing audio uploads with presigned URLs, lifecycle management
 
 ### Deployment Architecture
 - **Docker Container**: Runs on `shared_net` network without host port exposure
@@ -73,6 +84,14 @@ Echo TTS employs a comprehensive multi-service architecture with authentication,
 4. **Processing**: Bridge normalizes audio to .ogg Opus format
 5. **Deployment**: Processed files stored in S3 (processed/) and RunPod shared volume
 6. **Availability**: Voice becomes available in TTS service
+
+### Voice Changing Pipeline
+1. **Input**: Users upload or record two audio files (source + target)
+2. **Validation**: Client-side file format and size validation
+3. **Presigned URLs**: Client requests S3 presigned PUT URLs from `/api/voice-change/presign`
+4. **S3 Upload**: Both audio files uploaded directly to S3 via presigned URLs
+5. **Processing**: Server proxies request to RunPod Serverless (LinaCodec VC)
+6. **Result**: Converted audio returned as presigned URL for playback and download
 
 ### Data Flow
 1. User input flows through React components with authentication context
@@ -215,6 +234,29 @@ Echo TTS employs a comprehensive multi-service architecture with authentication,
 | `S3_SECRET` | S3 secret key | ✅ | - |
 | `S3_REFERENCE_PREFIX` | Prefix for voice files | ❌ | `reference-voices/` |
 
+#### STT Configuration (Server-side only)
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `S3_STT_BUCKET` | S3 bucket for STT audio uploads | ✅ | - |
+| `S3_STT_REGION` | S3 bucket region | ❌ | `us-east-1` |
+| `S3_STT_ACCESS_KEY` | S3 access key (server-side only) | ✅ | - |
+| `S3_STT_SECRET_KEY` | S3 secret key (server-side only) | ✅ | - |
+| `S3_STT_ENDPOINT` | S3 endpoint URL | ✅ | - |
+| `RUNPOD_STT_ENDPOINT` | RunPod Serverless endpoint for Parakeet STT | ✅ | - |
+| `RUNPOD_STT_API_KEY` | RunPod API key (server-side only) | ✅ | - |
+| `STT_MAX_FILE_SIZE` | Max file size in bytes | ❌ | `104857600` (100MB) |
+
+#### Voice Changing Configuration (Server-side only)
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `S3_VC_BUCKET` | S3 bucket for voice change uploads | ✅ | - |
+| `S3_VC_REGION` | S3 bucket region | ❌ | `us-east-1` |
+| `S3_VC_ACCESS_KEY` | S3 access key (server-side only) | ✅ | - |
+| `S3_VC_SECRET_KEY` | S3 secret key (server-side only) | ✅ | - |
+| `S3_VC_ENDPOINT` | S3 endpoint URL | ✅ | - |
+| `VOICE_CHANGE_RUNPOD_ENDPOINT` | RunPod Serverless endpoint for LinaCodec VC | ✅ | - |
+| `VOICE_CHANGE_RUNPOD_API_KEY` | RunPod API key (server-side only) | ✅ | - |
+
 #### Migration Note
 The `VITE_OPEN_AI_TTS_VOICES` variable is deprecated. Voice configuration is now managed dynamically through the Supabase database and bridge API.
 
@@ -314,6 +356,19 @@ curl -X POST http://your-tts-service:8000/v1/audio/speech \
   --output test.mp3
 ```
 
+### Test Voice Changing Endpoints
+```bash
+# Test presign endpoint
+curl -X POST http://localhost:4173/api/voice-change/presign \
+  -H "Content-Type: application/json" \
+  -d '{"filename":"source.mp3","contentType":"audio/mpeg"}'
+
+# Test voice change endpoint (after uploading files to S3)
+curl -X POST http://localhost:4173/api/voice-change \
+  -H "Content-Type: application/json" \
+  -d '{"source_key":"source-uuid","target_key":"target-uuid","output_format":"mp3"}'
+```
+
 ## 📁 Project Structure
 
 ```
@@ -330,12 +385,16 @@ echoTTS-app/
 │   │   ├── useTTS.ts           # TTS API integration
 │   │   ├── useAuth.ts          # Supabase auth integration
 │   │   ├── useVoices.ts        # Dynamic voice management
-│   │   └── useVoiceCreation.ts # Voice upload/creation flow
+│   │   ├── useVoiceCreation.ts # Voice upload/creation flow
+│   │   ├── useSTT.ts           # STT API integration
+│   │   └── useFileUpload.ts    # File upload, validation, and S3 upload
 │   ├── components/        # Reusable UI components
 │   │   ├── VoiceRecorder.tsx   # Microphone recording component
 │   │   ├── VoiceUploader.tsx   # File upload component
 │   │   ├── VoiceApproval.tsx   # Admin approval interface
-│   │   └── VoiceManager.tsx    # Voice list and management
+│   │   ├── VoiceManager.tsx    # Voice list and management
+│   │   ├── STTTab.tsx          # Speech-to-Text interface
+│   │   └── VoiceChangeTab.tsx  # Voice Changing interface
 │   ├── App.tsx            # Main application component
 │   ├── config.ts          # Configuration management
 │   ├── supabaseClient.ts  # Supabase client initialization
@@ -346,7 +405,8 @@ echoTTS-app/
 │       └── 001_schema.sql  # Database schema for voices and auth
 ├── docs/                  # Documentation
 │   ├── diagrams/          # Architecture diagrams
-│   └── ADD_VOICE.md       # Voice creation feature specification
+│   ├── ADD_VOICE.md       # Voice creation feature specification
+│   └── STT.md             # Speech-to-Text feature specification
 ├── server.js              # Express server for production
 ├── index.html             # HTML template with env injection
 ├── docker-compose.yml     # Docker deployment configuration
@@ -367,6 +427,8 @@ echoTTS-app/
   - `useAuth`: Supabase authentication state management
   - `useVoices`: Dynamic voice listing with real-time updates
   - `useVoiceCreation`: Voice upload, recording, and submission workflow
+  - `useSTT`: STT API integration with S3 upload and transcription
+  - `useFileUpload`: File validation, S3 upload with progress tracking
 - **React Contexts**:
   - `ThemeContext`: Light/dark mode theming with MUI
   - `AuthContext`: Supabase auth state and user role management
@@ -443,6 +505,18 @@ The voice creation feature is documented in [`ADD_VOICE.md`](./ADD_VOICE.md). Th
 3. **Frontend Components**: React components for recording, uploading, and approval
 4. **Security**: Authentication, authorization, and input validation
 5. **Migration**: Steps to upgrade from static to dynamic voices
+
+### Voice Changing Feature Development
+
+The voice changing feature enables users to transform source audio content with target voice timbre using the LinaCodec VC model via RunPod Serverless. Key implementation details:
+
+1. **Frontend Component**: `VoiceChangeTab.tsx` handles dual audio input (source + target)
+2. **Upload Pipeline**: Presigned S3 URLs for direct file uploads with progress tracking
+3. **API Endpoints**:
+   - `POST /api/voice-change/presign`: Generate S3 presigned PUT URLs
+   - `POST /api/voice-change`: Process voice conversion via RunPod
+4. **Audio Formats**: Supports .m4a, .mp3, .wav, .ogg, .opus, and .webm (recordings)
+5. **No Authentication**: Open access like STT functionality
 
 ### Setting Up Development Environment
 
