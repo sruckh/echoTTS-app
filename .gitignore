@@ -4,6 +4,8 @@ npm-debug.log
 
 # Production build
 dist
+.env
+test_live_streaming.py
 
 # Environment variables
 .env
