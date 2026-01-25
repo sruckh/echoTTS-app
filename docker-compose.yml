@@ -27,6 +27,10 @@ services:
       - VITE_CHATTERBOX_ENDPOINT=${VITE_CHATTERBOX_ENDPOINT:-https://chatterbox-openai-bridge.gemneye.workers.dev/v1/audio/speech}
       - VITE_CHATTERBOX_API_KEY=${VITE_CHATTERBOX_API_KEY:-}
 
+      # Qwen3-TTS (opensource) RunPod Serverless
+      - VITE_QWEN3_TTS_ENDPOINT=${VITE_QWEN3_TTS_ENDPOINT:-https://api.runpod.ai/v2/4ezpdk6kcac2j5}
+      - VITE_QWEN3_TTS_API_KEY=${VITE_QWEN3_TTS_API_KEY:-}
+
       # Alibaba Cloud Qwen-TTS (Singapore Region)
       - VITE_ALIBABA_API_KEY=${VITE_ALIBABA_API_KEY:-}
       - VITE_ALIBABA_VOICE_API=${VITE_ALIBABA_VOICE_API:-https://dashscope-intl.aliyuncs.com/api/v1/services/audio/tts/customization}
@@ -47,6 +51,15 @@ services:
       - RUNPOD_STT_ENDPOINT=${RUNPOD_STT_ENDPOINT:-}
       - RUNPOD_STT_API_KEY=${RUNPOD_STT_API_KEY:-}
       - STT_MAX_FILE_SIZE=${STT_MAX_FILE_SIZE:-104857600}
+
+      # Voice Change (RunPod Serverless)
+      - VOICE_CHANGE_RUNPOD_ENDPOINT=${VOICE_CHANGE_RUNPOD_ENDPOINT:-}
+      - VOICE_CHANGE_RUNPOD_API_KEY=${VOICE_CHANGE_RUNPOD_API_KEY:-}
+      - S3_VC_BUCKET=${S3_VC_BUCKET:-}
+      - S3_VC_REGION=${S3_VC_REGION:-us-east-1}
+      - S3_VC_ACCESS_KEY=${S3_VC_ACCESS_KEY:-}
+      - S3_VC_SECRET_KEY=${S3_VC_SECRET_KEY:-}
+      - S3_VC_ENDPOINT=${S3_VC_ENDPOINT:-}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4173/health"]
       interval: 30s

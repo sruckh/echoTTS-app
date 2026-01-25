@@ -13,6 +13,8 @@ interface Window {
     VITE_VIBEVOICE_API_KEY?: string;
     VITE_CHATTERBOX_ENDPOINT?: string;
     VITE_CHATTERBOX_API_KEY?: string;
+    VITE_QWEN3_TTS_ENDPOINT?: string;
+    VITE_QWEN3_TTS_API_KEY?: string;
     VITE_ALIBABA_API_KEY?: string;
     VITE_ALIBABA_VOICE_API?: string;
     VITE_ALIBABA_TTS_MODEL?: string;
@@ -32,6 +34,8 @@ interface ImportMetaEnv {
   readonly VITE_VIBEVOICE_API_KEY?: string;
   readonly VITE_CHATTERBOX_ENDPOINT?: string;
   readonly VITE_CHATTERBOX_API_KEY?: string;
+  readonly VITE_QWEN3_TTS_ENDPOINT?: string;
+  readonly VITE_QWEN3_TTS_API_KEY?: string;
   readonly VITE_ALIBABA_API_KEY?: string;
   readonly VITE_ALIBABA_VOICE_API?: string;
   readonly VITE_ALIBABA_TTS_MODEL?: string;

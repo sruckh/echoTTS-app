@@ -74,6 +74,19 @@ export const getConfig = () => {
     });
   }
 
+  // Qwen3-TTS (opensource) - RunPod Serverless direct
+  const qwen3RunpodEndpoint = env.VITE_QWEN3_TTS_ENDPOINT || importMetaEnv.VITE_QWEN3_TTS_ENDPOINT;
+  const qwen3RunpodApiKey = env.VITE_QWEN3_TTS_API_KEY || importMetaEnv.VITE_QWEN3_TTS_API_KEY;
+  if (qwen3RunpodEndpoint && qwen3RunpodApiKey) {
+    services.push({
+      id: 'qwen3-open',
+      label: 'Qwen3-TTS (opensource)',
+      endpoint: qwen3RunpodEndpoint,
+      apiKey: qwen3RunpodApiKey,
+      streamingSupported: true
+    });
+  }
+
   // Alibaba Cloud Qwen-TTS
   const alibabaApiKey = env.VITE_ALIBABA_API_KEY || importMetaEnv.VITE_ALIBABA_API_KEY;
   const alibabaVoiceApi = env.VITE_ALIBABA_VOICE_API || importMetaEnv.VITE_ALIBABA_VOICE_API;

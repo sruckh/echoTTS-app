@@ -8,10 +8,11 @@ const ALLOWED_TYPES = [
   'audio/wav',
   'audio/ogg',
   'audio/opus',
+  'audio/webm',
   'audio/x-m4a',
 ];
 
-const ALLOWED_EXTENSIONS = ['.m4a', '.mp3', '.wav', '.ogg', '.opus'];
+const ALLOWED_EXTENSIONS = ['.m4a', '.mp3', '.wav', '.ogg', '.opus', '.webm'];
 
 // Max file size: 100MB
 const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024;

@@ -17,6 +17,7 @@ import { useObjectUrls } from './hooks/useObjectUrls';
 import { useAlibabaVoices, AlibabaVoice } from './hooks/useAlibabaVoices';
 import { VoiceCreationDialog } from './components/VoiceCreationDialog';
 import { STTTab } from './components/STTTab';
+import { VoiceChangeTab } from './components/VoiceChangeTab';
 
 function App() {
   const { mode, toggleMode } = useColorMode();
@@ -45,7 +46,7 @@ function App() {
   const [voice, setVoice] = useState(config.voices[0]?.id || '');
   const [selectedService, setSelectedService] = useState<TTSService | undefined>(config.services[0]);
   const [voiceDialogOpen, setVoiceDialogOpen] = useState(false);
-  const [currentTab, setCurrentTab] = useState<'tts' | 'stt'>('tts');
+  const [currentTab, setCurrentTab] = useState<'tts' | 'stt' | 'voice-change'>('tts');
   
   // Add streaming preference state
   const [useStreaming, setUseStreaming] = useState(() => {
@@ -53,6 +54,8 @@ function App() {
     const saved = localStorage.getItem('tts_streaming');
     return saved ? JSON.parse(saved) : true; // Default to true
   });
+
+  const streamingSupported = selectedService?.streamingSupported !== false;
 
   // Save streaming preference
   useEffect(() => {
@@ -99,7 +102,7 @@ function App() {
 
     // Decision: Streaming or Batch?
     // We don't stream for Alibaba (WebSocket handled separately)
-    const shouldStream = useStreaming && selectedService.id !== 'alibaba';
+    const shouldStream = streamingSupported && useStreaming && selectedService.id !== 'alibaba';
 
     if (shouldStream) {
       await generateStreaming({
@@ -219,7 +222,13 @@ function App() {
     }
   }, [selectedService?.id, getCurrentVoices, voice]);
 
-  const handleTabChange = (_event: React.SyntheticEvent, newValue: 'tts' | 'stt') => {
+  useEffect(() => {
+    if (!streamingSupported && useStreaming) {
+      setUseStreaming(false);
+    }
+  }, [streamingSupported, useStreaming]);
+
+  const handleTabChange = (_event: React.SyntheticEvent, newValue: 'tts' | 'stt' | 'voice-change') => {
     setCurrentTab(newValue);
   };
 
@@ -280,6 +289,7 @@ function App() {
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs value={currentTab} onChange={handleTabChange}>
           <Tab label="Text to Speech" value="tts" />
+          <Tab label="Voice Changing" value="voice-change" />
           <Tab label="Speech to Text" value="stt" />
         </Tabs>
       </Box>
@@ -367,7 +377,7 @@ function App() {
                   <Switch
                     checked={useStreaming}
                     onChange={(e) => setUseStreaming(e.target.checked)}
-                    disabled={isStreaming || loading}
+                    disabled={isStreaming || loading || !streamingSupported}
                   />
                 }
                 label={
@@ -489,6 +499,11 @@ function App() {
       {/* STT Tab Content */}
       <Box sx={{ display: currentTab === 'stt' ? 'block' : 'none' }}>
         <STTTab />
+      </Box>
+
+      {/* Voice Change Tab Content */}
+      <Box sx={{ display: currentTab === 'voice-change' ? 'block' : 'none' }}>
+        <VoiceChangeTab />
       </Box>
     </Container>
   );

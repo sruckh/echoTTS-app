@@ -177,6 +177,7 @@ app.post('/api/tts/stream', async (req, res) => {
     // Determine the target endpoint based on service ID
     let targetEndpoint = '';
     let apiKey = '';
+    let forceNoStream = false;
 
     // INTERNAL CONTAINER ROUTING: Use container names instead of localhost/public domains
     if (service === 'echotts' || service === 'default') {
@@ -191,6 +192,9 @@ app.post('/api/tts/stream', async (req, res) => {
     } else if (service === 'chatterbox') {
       targetEndpoint = process.env.VITE_CHATTERBOX_ENDPOINT;
       apiKey = process.env.VITE_CHATTERBOX_API_KEY;
+    } else if (service === 'qwen3-open') {
+      targetEndpoint = process.env.VITE_QWEN3_TTS_ENDPOINT;
+      apiKey = process.env.VITE_QWEN3_TTS_API_KEY;
     }
 
     if (!targetEndpoint) {
@@ -203,7 +207,7 @@ app.post('/api/tts/stream', async (req, res) => {
       headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
-    const shouldStream = stream !== undefined ? stream : true;
+    const shouldStream = forceNoStream ? false : (stream !== undefined ? stream : true);
     const baseUrl = targetEndpoint.replace(/\/v1\/audio\/speech\/?$/, '');
     const streamEndpoint = `${baseUrl}/api/tts/stream`;
 
@@ -229,6 +233,20 @@ app.post('/api/tts/stream', async (req, res) => {
         voice,
         stream: shouldStream,
         response_format: 'mp3'
+      };
+    } else if (service === 'qwen3-open') {
+      const runpodEndpoint = process.env.VITE_QWEN3_TTS_ENDPOINT || targetEndpoint;
+      const runpodBase = runpodEndpoint.replace(/\/runsync\/?$/, '');
+      upstreamUrl = `${runpodBase}/runsync`;
+      upstreamPayload = {
+        input: {
+          text: resolvedText,
+          mode: 'voice_clone',
+          voice,
+          language: 'auto',
+          stream: shouldStream,
+          output_format: 'mp3'
+        }
       };
     } else {
       // VibeVoice: Always uses /v1/audio/speech, stream flag controls mode
@@ -268,6 +286,24 @@ app.post('/api/tts/stream', async (req, res) => {
       // Streaming: Return raw audio bytes
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
+
+      if (service === 'qwen3-open') {
+        res.setHeader('Content-Type', 'audio/mpeg');
+
+        const data = await response.json();
+        const outputChunks = Array.isArray(data?.output) ? data.output : [];
+
+        for (const chunk of outputChunks) {
+          const audioBase64 = chunk?.audio_chunk || chunk?.audio || chunk?.audio_base64;
+          if (audioBase64) {
+            res.write(Buffer.from(audioBase64, 'base64'));
+          }
+        }
+
+        res.end();
+        return;
+      }
+
       const upstreamContentType = response.headers.get('content-type');
       res.setHeader('Content-Type', upstreamContentType || 'audio/mpeg');
 
@@ -297,6 +333,79 @@ app.post('/api/tts/stream', async (req, res) => {
       const contentType = response.headers.get('content-type') || '';
       if (contentType.includes('application/json')) {
         const data = await response.json();
+
+        if (service === 'qwen3-open') {
+          if (data?.error) {
+            return res.status(502).json(data);
+          }
+
+          const output = data?.output;
+          const fetchAudioWithRetry = async (url) => {
+            const maxAttempts = 4;
+            let lastError;
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+              try {
+                const audioResponse = await fetch(url);
+                if (audioResponse.ok) {
+                  return audioResponse;
+                }
+                lastError = new Error(`Audio fetch failed with status ${audioResponse.status}`);
+              } catch (err) {
+                lastError = err;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+            }
+            throw lastError;
+          };
+
+          if (Array.isArray(output)) {
+            const firstChunk = output.find((item) => item?.audio_chunk || item?.audio || item?.audio_base64);
+            const audioBase64 = firstChunk?.audio_chunk || firstChunk?.audio || firstChunk?.audio_base64;
+            if (audioBase64) {
+              const audioBuffer = Buffer.from(audioBase64, 'base64');
+              res.setHeader('Content-Type', 'audio/mpeg');
+              return res.send(audioBuffer);
+            }
+
+            const firstUrl = output.find((item) => item?.audio_url)?.audio_url;
+            if (firstUrl) {
+              const audioResponse = await fetchAudioWithRetry(firstUrl);
+              const audioContentType = audioResponse.headers.get('content-type');
+              res.setHeader('Content-Type', audioContentType || 'audio/mpeg');
+              if (audioResponse.body) {
+                // @ts-ignore
+                const readable = Readable.fromWeb(audioResponse.body);
+                return readable.pipe(res);
+              }
+              return res.end();
+            }
+          }
+
+          if (output?.audio_url) {
+            const audioResponse = await fetchAudioWithRetry(output.audio_url);
+            if (!audioResponse.ok) {
+              return res.status(502).json({ error: 'Failed to fetch RunPod audio URL' });
+            }
+
+            const audioContentType = audioResponse.headers.get('content-type');
+            res.setHeader('Content-Type', audioContentType || 'audio/mpeg');
+            if (audioResponse.body) {
+              // @ts-ignore
+              const readable = Readable.fromWeb(audioResponse.body);
+              return readable.pipe(res);
+            }
+            return res.end();
+          }
+
+          if (output?.audio_base64) {
+            const audioBuffer = Buffer.from(output.audio_base64, 'base64');
+            res.setHeader('Content-Type', 'audio/mpeg');
+            return res.send(audioBuffer);
+          }
+
+          return res.status(502).json({ error: 'RunPod response missing audio payload' });
+        }
+
         console.log('[Streaming Proxy] Batch response:', { audio_url: !!data.audio_url, audio_base64: !!data.audio_base64 });
         res.json(data);
       } else {
@@ -323,6 +432,161 @@ app.post('/api/tts/stream', async (req, res) => {
       code: error.code,
       cause: error.cause
     });
+  }
+});
+
+// ============================================================================
+// Voice Changing (Placeholder RunPod Serverless)
+// ============================================================================
+const VOICE_CHANGE_RUNPOD_ENDPOINT = process.env.VOICE_CHANGE_RUNPOD_ENDPOINT;
+const VOICE_CHANGE_RUNPOD_API_KEY = process.env.VOICE_CHANGE_RUNPOD_API_KEY;
+const S3_VC_BUCKET = process.env.S3_VC_BUCKET;
+const S3_VC_REGION = process.env.S3_VC_REGION;
+const S3_VC_ACCESS_KEY = process.env.S3_VC_ACCESS_KEY;
+const S3_VC_SECRET_KEY = process.env.S3_VC_SECRET_KEY;
+const S3_VC_ENDPOINT = process.env.S3_VC_ENDPOINT;
+
+app.post('/api/voice-change/presign', async (req, res) => {
+  try {
+    const { filename, contentType } = req.body;
+
+    if (!filename || !contentType) {
+      return res.status(400).json({ error: 'Missing filename or contentType' });
+    }
+
+    const allowedTypes = [
+      'audio/m4a',
+      'audio/mp3',
+      'audio/mpeg',
+      'audio/wav',
+      'audio/ogg',
+      'audio/opus',
+      'audio/webm',
+      'audio/x-m4a'
+    ];
+
+    if (!allowedTypes.includes(contentType.toLowerCase())) {
+      return res.status(400).json({ error: 'Invalid file type' });
+    }
+
+    if (!S3_VC_BUCKET || !S3_VC_REGION || !S3_VC_ACCESS_KEY || !S3_VC_SECRET_KEY || !S3_VC_ENDPOINT) {
+      console.error('[Voice Change Presign] Missing S3 configuration');
+      return res.status(500).json({ error: 'Voice change storage not configured' });
+    }
+
+    const key = crypto.randomUUID();
+
+    const s3Client = new S3Client({
+      region: S3_VC_REGION,
+      endpoint: S3_VC_ENDPOINT,
+      credentials: {
+        accessKeyId: S3_VC_ACCESS_KEY,
+        secretAccessKey: S3_VC_SECRET_KEY,
+      },
+    });
+
+    const command = new PutObjectCommand({
+      Bucket: S3_VC_BUCKET,
+      Key: key,
+      ContentType: contentType,
+    });
+
+    const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+
+    return res.json({ key, presignedUrl });
+  } catch (error) {
+    console.error('[Voice Change Presign] Error:', error);
+    res.status(500).json({ error: 'Failed to generate upload URL' });
+  }
+});
+
+app.post('/api/voice-change', async (req, res) => {
+  try {
+    if (!VOICE_CHANGE_RUNPOD_ENDPOINT || !VOICE_CHANGE_RUNPOD_API_KEY) {
+      return res.status(501).json({ error: 'Voice change service not configured' });
+    }
+
+    const {
+      source_audio_url,
+      target_audio_url,
+      source_audio_base64,
+      target_audio_base64,
+      source_key,
+      target_key,
+      output_format
+    } = req.body || {};
+
+    if (!source_audio_url && !source_audio_base64 && !source_key) {
+      return res.status(400).json({ error: 'Missing source audio input' });
+    }
+    if (!target_audio_url && !target_audio_base64 && !target_key) {
+      return res.status(400).json({ error: 'Missing target audio input' });
+    }
+
+    let resolvedSourceUrl = source_audio_url;
+    let resolvedTargetUrl = target_audio_url;
+
+    if ((source_key || target_key) && (!S3_VC_BUCKET || !S3_VC_REGION || !S3_VC_ACCESS_KEY || !S3_VC_SECRET_KEY || !S3_VC_ENDPOINT)) {
+      return res.status(500).json({ error: 'Voice change storage not configured' });
+    }
+
+    if (source_key || target_key) {
+      const s3Client = new S3Client({
+        region: S3_VC_REGION,
+        endpoint: S3_VC_ENDPOINT,
+        credentials: {
+          accessKeyId: S3_VC_ACCESS_KEY,
+          secretAccessKey: S3_VC_SECRET_KEY,
+        },
+      });
+
+      if (source_key) {
+        const getCommand = new GetObjectCommand({ Bucket: S3_VC_BUCKET, Key: source_key });
+        resolvedSourceUrl = await getSignedUrl(s3Client, getCommand, { expiresIn: 3600 });
+      }
+
+      if (target_key) {
+        const getCommand = new GetObjectCommand({ Bucket: S3_VC_BUCKET, Key: target_key });
+        resolvedTargetUrl = await getSignedUrl(s3Client, getCommand, { expiresIn: 3600 });
+      }
+    }
+
+    const input = {
+      source_audio_url: resolvedSourceUrl,
+      target_audio_url: resolvedTargetUrl,
+      source_audio_base64,
+      target_audio_base64,
+      output_format: output_format || 'mp3'
+    };
+
+    const response = await fetch(VOICE_CHANGE_RUNPOD_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${VOICE_CHANGE_RUNPOD_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ input })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return res.status(response.status).send(errorText);
+    }
+
+    const data = await response.json();
+    const output = Array.isArray(data?.output) ? data.output : data?.output;
+    const audioUrl = Array.isArray(output)
+      ? output.find((item) => item?.audio_url)?.audio_url
+      : output?.audio_url;
+
+    if (!audioUrl) {
+      return res.status(502).json({ error: 'Voice change response missing audio_url', details: data });
+    }
+
+    return res.json({ audio_url: audioUrl });
+  } catch (error) {
+    console.error('[Voice Change] Error:', error);
+    res.status(500).json({ error: 'Voice change request failed', details: error.message });
   }
 });
 
@@ -357,6 +621,7 @@ app.post('/api/stt/presign', async (req, res) => {
       'audio/wav',
       'audio/ogg',
       'audio/opus',
+      'audio/webm',
       'audio/x-m4a'
     ];
 
