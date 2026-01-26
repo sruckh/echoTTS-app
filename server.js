@@ -552,14 +552,19 @@ app.post('/api/voice-change', async (req, res) => {
     }
 
     const input = {
-      source_audio_url: resolvedSourceUrl,
-      target_audio_url: resolvedTargetUrl,
-      source_audio_base64,
-      target_audio_base64,
-      output_format: output_format || 'mp3'
+      audio_url_1: resolvedSourceUrl,
+      audio_url_2: resolvedTargetUrl,
+      format: output_format || 'mp3'
     };
 
-    const response = await fetch(VOICE_CHANGE_RUNPOD_ENDPOINT, {
+    // Log presigned URLs for testing
+    console.log('[Voice Change] Source URL:', resolvedSourceUrl);
+    console.log('[Voice Change] Target URL:', resolvedTargetUrl);
+
+    // RunPod endpoints need /runsync (synchronous) or /run (async) suffix
+    const runpodUrl = VOICE_CHANGE_RUNPOD_ENDPOINT.replace(/\/?$/, '/runsync');
+
+    const response = await fetch(runpodUrl, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${VOICE_CHANGE_RUNPOD_API_KEY}`,
@@ -574,10 +579,9 @@ app.post('/api/voice-change', async (req, res) => {
     }
 
     const data = await response.json();
-    const output = Array.isArray(data?.output) ? data.output : data?.output;
-    const audioUrl = Array.isArray(output)
-      ? output.find((item) => item?.audio_url)?.audio_url
-      : output?.audio_url;
+    // Support both top-level audio_url and RunPod-style wrapped output.audio_url
+    const output = data?.output || data;
+    const audioUrl = output?.audio_url;
 
     if (!audioUrl) {
       return res.status(502).json({ error: 'Voice change response missing audio_url', details: data });
@@ -586,7 +590,7 @@ app.post('/api/voice-change', async (req, res) => {
     return res.json({ audio_url: audioUrl });
   } catch (error) {
     console.error('[Voice Change] Error:', error);
-    res.status(500).json({ error: 'Voice change request failed', details: error.message });
+    return res.status(500).json({ error: 'Voice change request failed', details: error.message });
   }
 });
 
