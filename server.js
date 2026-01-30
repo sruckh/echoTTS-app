@@ -195,6 +195,9 @@ app.post('/api/tts/stream', async (req, res) => {
     } else if (service === 'qwen3-open') {
       targetEndpoint = process.env.VITE_QWEN3_TTS_ENDPOINT;
       apiKey = process.env.VITE_QWEN3_TTS_API_KEY;
+    } else if (service === 'fishaudio') {
+      targetEndpoint = process.env.VITE_FISHAUDIO_TTS_ENDPOINT;
+      apiKey = process.env.VITE_FISHAUDIO_TTS_API_KEY;
     }
 
     if (!targetEndpoint) {
@@ -248,6 +251,20 @@ app.post('/api/tts/stream', async (req, res) => {
           output_format: 'mp3'
         }
       };
+    } else if (service === 'fishaudio') {
+      // FishAudio S1-mini: RunPod Serverless direct (no input wrapper)
+      const runpodEndpoint = process.env.VITE_FISHAUDIO_TTS_ENDPOINT || targetEndpoint;
+      const runpodBase = runpodEndpoint.replace(/\/runsync\/?$/, '');
+      upstreamUrl = `${runpodBase}/runsync`;
+      // FishAudio expects direct parameters (NOT wrapped in input object)
+      upstreamPayload = {
+        input: {
+          text: resolvedText,
+          voice,
+          stream: shouldStream,
+          output_format: 'mp3'
+        }
+      };
     } else {
       // VibeVoice: Always uses /v1/audio/speech, stream flag controls mode
       upstreamUrl = targetEndpoint;
@@ -297,6 +314,48 @@ app.post('/api/tts/stream', async (req, res) => {
           const audioBase64 = chunk?.audio_chunk || chunk?.audio || chunk?.audio_base64;
           if (audioBase64) {
             res.write(Buffer.from(audioBase64, 'base64'));
+          }
+        }
+
+        res.end();
+        return;
+      }
+
+      if (service === 'fishaudio') {
+        // FishAudio streaming: output is array with audio_chunk entries
+        // Format: { output: [{ audio_chunk: "base64", chunk: 1, status: "streaming" }, { status: "complete" }] }
+        const data = await response.json();
+        console.log('[FishAudio Streaming] Raw response keys:', Object.keys(data), 'output length:', data?.output?.length);
+
+        res.setHeader('Content-Type', 'audio/mpeg');
+        const output = data?.output;
+
+        if (Array.isArray(output)) {
+          for (const chunk of output) {
+            // Look for audio_chunk (streaming) or audio_base64 (batch)
+            const audioBase64 = chunk?.audio_chunk || chunk?.audio_base64;
+            if (audioBase64) {
+              console.log(`[FishAudio] Writing chunk ${chunk?.chunk || 'N/A'}, size: ${audioBase64.length}`);
+              res.write(Buffer.from(audioBase64, 'base64'));
+            }
+          }
+        }
+
+        // Also check for audio_url fallback (batch mode response)
+        const firstOutput = Array.isArray(output) ? output[0] : output;
+        const audioUrl = firstOutput?.audio_url || data?.audio_url;
+        if (audioUrl) {
+          console.log('[FishAudio] Fetching audio from URL:', audioUrl);
+          try {
+            const audioResponse = await fetch(audioUrl);
+            if (audioResponse.ok && audioResponse.body) {
+              // @ts-ignore
+              const readable = Readable.fromWeb(audioResponse.body);
+              readable.pipe(res);
+              return;
+            }
+          } catch (err) {
+            console.error('[FishAudio] Failed to fetch audio URL:', err.message);
           }
         }
 
@@ -404,6 +463,63 @@ app.post('/api/tts/stream', async (req, res) => {
           }
 
           return res.status(502).json({ error: 'RunPod response missing audio payload' });
+        }
+
+        if (service === 'fishaudio') {
+          // FishAudio batch: RunPod returns { output: [{ audio_url, status, ... }], status: "COMPLETED" }
+          console.log('[FishAudio] Raw response:', JSON.stringify(data, null, 2));
+
+          if (data?.error) {
+            return res.status(502).json(data);
+          }
+
+          const fetchAudioWithRetry = async (url) => {
+            const maxAttempts = 4;
+            let lastError;
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+              try {
+                console.log(`[FishAudio] Fetching audio URL attempt ${attempt}:`, url);
+                const audioResponse = await fetch(url);
+                if (audioResponse.ok) {
+                  return audioResponse;
+                }
+                lastError = new Error(`Audio fetch failed with status ${audioResponse.status}`);
+              } catch (err) {
+                lastError = err;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+            }
+            throw lastError;
+          };
+
+          // RunPod wraps response: output is an ARRAY
+          const output = data?.output;
+          const firstOutput = Array.isArray(output) ? output[0] : output;
+
+          // Check for audio_url in first output element
+          const audioUrl = firstOutput?.audio_url || data?.audio_url;
+          if (audioUrl) {
+            console.log('[FishAudio] Found audio_url:', audioUrl);
+            const audioResponse = await fetchAudioWithRetry(audioUrl);
+            const audioContentType = audioResponse.headers.get('content-type');
+            res.setHeader('Content-Type', audioContentType || 'audio/mpeg');
+            if (audioResponse.body) {
+              // @ts-ignore
+              const readable = Readable.fromWeb(audioResponse.body);
+              return readable.pipe(res);
+            }
+            return res.end();
+          }
+
+          // Check for audio_base64
+          const audioBase64 = firstOutput?.audio_base64 || data?.audio_base64;
+          if (audioBase64) {
+            const audioBuffer = Buffer.from(audioBase64, 'base64');
+            res.setHeader('Content-Type', 'audio/mpeg');
+            return res.send(audioBuffer);
+          }
+
+          return res.status(502).json({ error: 'FishAudio response missing audio payload', response: data });
         }
 
         console.log('[Streaming Proxy] Batch response:', { audio_url: !!data.audio_url, audio_base64: !!data.audio_base64 });

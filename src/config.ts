@@ -87,6 +87,19 @@ export const getConfig = () => {
     });
   }
 
+  // FishAudio S1-mini - RunPod Serverless direct
+  const fishaudioEndpoint = env.VITE_FISHAUDIO_TTS_ENDPOINT || importMetaEnv.VITE_FISHAUDIO_TTS_ENDPOINT;
+  const fishaudioApiKey = env.VITE_FISHAUDIO_TTS_API_KEY || importMetaEnv.VITE_FISHAUDIO_TTS_API_KEY;
+  if (fishaudioEndpoint && fishaudioApiKey) {
+    services.push({
+      id: 'fishaudio',
+      label: 'FishAudio S1-mini',
+      endpoint: fishaudioEndpoint,
+      apiKey: fishaudioApiKey,
+      streamingSupported: true
+    });
+  }
+
   // Alibaba Cloud Qwen-TTS
   const alibabaApiKey = env.VITE_ALIBABA_API_KEY || importMetaEnv.VITE_ALIBABA_API_KEY;
   const alibabaVoiceApi = env.VITE_ALIBABA_VOICE_API || importMetaEnv.VITE_ALIBABA_VOICE_API;
