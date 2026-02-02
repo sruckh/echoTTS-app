@@ -35,15 +35,15 @@ export const getConfig = () => {
   // Get service configurations
   const services: TTSService[] = [];
 
-  // EchoTTS
-  const echottsEndpoint = env.VITE_ECHOTTS_ENDPOINT || importMetaEnv.VITE_ECHOTTS_ENDPOINT;
-  const echottsApiKey = env.VITE_ECHOTTS_API_KEY || importMetaEnv.VITE_ECHOTTS_API_KEY;
-  if (echottsEndpoint) {
+  // EchoTTS RunPod Serverless (Direct)
+  const echottsRunpodEndpoint = env.VITE_ECHOTTS_RUNPOD_ENDPOINT || importMetaEnv.VITE_ECHOTTS_RUNPOD_ENDPOINT;
+  const echottsRunpodApiKey = env.VITE_ECHOTTS_RUNPOD_API_KEY || importMetaEnv.VITE_ECHOTTS_RUNPOD_API_KEY;
+  if (echottsRunpodEndpoint && echottsRunpodApiKey) {
     services.push({
       id: 'echotts',
       label: 'EchoTTS',
-      endpoint: echottsEndpoint,
-      apiKey: echottsApiKey || '',
+      endpoint: echottsRunpodEndpoint,
+      apiKey: echottsRunpodApiKey,
       streamingSupported: true
     });
   }

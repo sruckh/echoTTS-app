@@ -9,6 +9,8 @@ interface Window {
     VITE_TTS_VOICES?: string; // JSON string
     VITE_ECHOTTS_ENDPOINT?: string;
     VITE_ECHOTTS_API_KEY?: string;
+    VITE_ECHOTTS_RUNPOD_ENDPOINT?: string;
+    VITE_ECHOTTS_RUNPOD_API_KEY?: string;
     VITE_VIBEVOICE_ENDPOINT?: string;
     VITE_VIBEVOICE_API_KEY?: string;
     VITE_CHATTERBOX_ENDPOINT?: string;
@@ -32,6 +34,8 @@ interface ImportMetaEnv {
   readonly VITE_TTS_VOICES?: string;
   readonly VITE_ECHOTTS_ENDPOINT?: string;
   readonly VITE_ECHOTTS_API_KEY?: string;
+  readonly VITE_ECHOTTS_RUNPOD_ENDPOINT?: string;
+  readonly VITE_ECHOTTS_RUNPOD_API_KEY?: string;
   readonly VITE_VIBEVOICE_ENDPOINT?: string;
   readonly VITE_VIBEVOICE_API_KEY?: string;
   readonly VITE_CHATTERBOX_ENDPOINT?: string;

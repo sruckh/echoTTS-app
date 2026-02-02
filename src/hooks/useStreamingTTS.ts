@@ -55,13 +55,12 @@ export function useStreamingTTS() {
       if (!service) throw new Error(`Service not found: ${serviceId}`);
 
       // 1. Prepare the request
-      // We expect the backend to respect this and return raw audio/mpeg
       const payload = {
         service: serviceId,
         text,
         voice,
         stream: true,
-        response_format: 'mp3' // Explicitly request MP3
+        response_format: 'mp3'
       };
 
       const response = await fetch('/api/tts/stream', {
@@ -76,8 +75,14 @@ export function useStreamingTTS() {
 
       if (!response.body) throw new Error('No response body received');
 
-      // 2. Initialize the MSE Player
-      await playMp3Stream(response.body, setState, stopRef, onProgress, onComplete);
+      // Choose player based on service
+      // EchoTTS returns WAV format which MSE can't handle with MP3 codec
+      // Use Blob fallback for EchoTTS, MSE for others (MP3)
+      if (serviceId === 'echotts' || serviceId === 'default') {
+        await playBlobFallback(response.body, 'audio/wav', setState, stopRef, onProgress, onComplete);
+      } else {
+        await playMp3Stream(response.body, setState, stopRef, onProgress, onComplete);
+      }
 
     } catch (error) {
       setState(prev => ({ ...prev, isStreaming: false }));
@@ -104,7 +109,7 @@ async function playMp3Stream(
   // or if the specific MP3 codec isn't supported.
   if (!window.MediaSource || !MediaSource.isTypeSupported(mimeType)) {
     console.warn('[Streaming] MSE not supported for MP3. Falling back to simple download-and-play.');
-    await playBlobFallback(readableStream, setState, stopRef, onProgress, onComplete);
+    await playBlobFallback(readableStream, mimeType, setState, stopRef, onProgress, onComplete);
     return;
   }
 
@@ -228,10 +233,11 @@ async function playMp3Stream(
 }
 
 /**
- * Fallback for non-MSE browsers (downloads whole stream then plays)
+ * Fallback for non-MSE browsers or non-MP3 formats (downloads whole stream then plays)
  */
 async function playBlobFallback(
   readableStream: ReadableStream<Uint8Array>,
+  mimeType: string,
   setState: React.Dispatch<React.SetStateAction<StreamingTTSState>>,
   stopRef: React.MutableRefObject<(() => void) | null>,
   onProgress?: (progress: number) => void,
@@ -248,10 +254,11 @@ async function playBlobFallback(
       chunks.push(value);
       totalReceived += value.length;
       onProgress?.(Math.min(95, (totalReceived / 500000) * 100));
+      setState(prev => ({ ...prev, chunksReceived: prev.chunksReceived + 1 }));
     }
   }
 
-  const blob = new Blob(chunks as any[], { type: 'audio/mpeg' });
+  const blob = new Blob(chunks as any[], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const audio = new Audio(url);
 

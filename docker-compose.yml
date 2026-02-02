@@ -15,9 +15,13 @@ services:
       # TTS Voices Configuration (JSON array)
       - VITE_TTS_VOICES=${VITE_TTS_VOICES}
       
-      # EchoTTS Service Configuration
-      - VITE_ECHOTTS_ENDPOINT=${VITE_ECHOTTS_ENDPOINT:-https://echotts.gemneye.xyz/v1/audio/speech}
-      - VITE_ECHOTTS_API_KEY=${VITE_ECHOTTS_API_KEY:-}
+      # EchoTTS Service Configuration (Legacy Bridge - deprecated)
+      # - VITE_ECHOTTS_ENDPOINT=${VITE_ECHOTTS_ENDPOINT:-https://echotts.gemneye.xyz/v1/audio/speech}
+      # - VITE_ECHOTTS_API_KEY=${VITE_ECHOTTS_API_KEY:-}
+      
+      # EchoTTS RunPod Serverless (Direct)
+      - VITE_ECHOTTS_RUNPOD_ENDPOINT=${VITE_ECHOTTS_RUNPOD_ENDPOINT:-}
+      - VITE_ECHOTTS_RUNPOD_API_KEY=${VITE_ECHOTTS_RUNPOD_API_KEY:-}
       
       # Vibe Voice Service Configuration
       - VITE_VIBEVOICE_ENDPOINT=${VITE_VIBEVOICE_ENDPOINT:-https://vibevoice-openai-bridge.gemneye.workers.dev/v1/audio/speech}

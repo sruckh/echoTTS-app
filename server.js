@@ -9,6 +9,42 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import crypto from 'crypto';
 import { Readable } from 'stream';
 
+/**
+ * Create a WAV file header for PCM audio
+ * @param {number} dataLength - Length of PCM data in bytes
+ * @param {number} sampleRate - Sample rate in Hz (e.g., 48000)
+ * @param {number} numChannels - Number of channels (1 for mono, 2 for stereo)
+ * @param {number} bitsPerSample - Bits per sample (16 for pcm_16)
+ * @returns {Buffer} WAV header buffer
+ */
+function createWavHeader(dataLength, sampleRate, numChannels, bitsPerSample) {
+  const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+  const blockAlign = numChannels * (bitsPerSample / 8);
+  
+  const header = Buffer.alloc(44);
+  
+  // RIFF chunk descriptor
+  header.write('RIFF', 0);                              // ChunkID
+  header.writeUInt32LE(36 + dataLength, 4);             // ChunkSize
+  header.write('WAVE', 8);                              // Format
+  
+  // fmt sub-chunk
+  header.write('fmt ', 12);                             // Subchunk1ID
+  header.writeUInt32LE(16, 16);                         // Subchunk1Size (16 for PCM)
+  header.writeUInt16LE(1, 20);                          // AudioFormat (1 for PCM)
+  header.writeUInt16LE(numChannels, 22);                // NumChannels
+  header.writeUInt32LE(sampleRate, 24);                 // SampleRate
+  header.writeUInt32LE(byteRate, 28);                   // ByteRate
+  header.writeUInt16LE(blockAlign, 32);                 // BlockAlign
+  header.writeUInt16LE(bitsPerSample, 34);              // BitsPerSample
+  
+  // data sub-chunk
+  header.write('data', 36);                             // Subchunk2ID
+  header.writeUInt32LE(dataLength, 40);                 // Subchunk2Size
+  
+  return header;
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -181,11 +217,9 @@ app.post('/api/tts/stream', async (req, res) => {
 
     // INTERNAL CONTAINER ROUTING: Use container names instead of localhost/public domains
     if (service === 'echotts' || service === 'default') {
-      // Use the configured endpoint from environment (defaults to public URL if not overridden)
-      // This allows flexibility: can be set to internal container (http://echotts-openai:8000...)
-      // or public URL (https://echotts.gemneye.xyz...) in .env
-      targetEndpoint = process.env.VITE_ECHOTTS_ENDPOINT || 'http://echotts-openai:8000/v1/audio/speech';
-      apiKey = process.env.VITE_ECHOTTS_API_KEY;
+      // EchoTTS RunPod Serverless (Direct)
+      targetEndpoint = process.env.VITE_ECHOTTS_RUNPOD_ENDPOINT;
+      apiKey = process.env.VITE_ECHOTTS_RUNPOD_API_KEY;
     } else if (service === 'vibevoice') {
       targetEndpoint = process.env.VITE_VIBEVOICE_ENDPOINT;
       apiKey = process.env.VITE_VIBEVOICE_API_KEY;
@@ -219,14 +253,29 @@ app.post('/api/tts/stream', async (req, res) => {
     let upstreamUrl;
 
     if (service === 'echotts' || service === 'default') {
-      // EchoTTS: OpenAI-style API
-      upstreamUrl = targetEndpoint;
+      // EchoTTS: RunPod Serverless direct
+      // Documentation: https://github.com/sruckh/echo-tts
+      const runpodEndpoint = process.env.VITE_ECHOTTS_RUNPOD_ENDPOINT || targetEndpoint;
+      const runpodBase = runpodEndpoint.replace(/\/runsync\/?$/, '');
+      upstreamUrl = `${runpodBase}/runsync`;
+      
+      // Build payload - output_format only needed for streaming (pcm_16 vs linacodec_tokens)
+      // Batch mode without output_format returns OGG URL; streaming needs pcm_16 for browser playback
       upstreamPayload = {
-        model: model || 'tts-1',
-        input: resolvedText,
-        voice,
-        response_format: 'mp3'
+        input: {
+          text: resolvedText,
+          speaker_voice: voice || undefined,
+          stream: shouldStream,
+          ...(shouldStream && { output_format: 'pcm_16' }),
+          parameters: {
+            num_steps: 40,
+            cfg_scale_text: 3.0,
+            cfg_scale_speaker: 8.0,
+            seed: Date.now() % 1000000
+          }
+        }
       };
+
     } else if (service === 'chatterbox') {
       // Chatterbox: Always uses /v1/audio/speech, stream flag controls mode
       upstreamUrl = targetEndpoint;
@@ -360,6 +409,56 @@ app.post('/api/tts/stream', async (req, res) => {
         }
 
         res.end();
+        return;
+      }
+
+      if (service === 'echotts' || service === 'default') {
+        // EchoTTS streaming: RunPod returns { output: [{ audio_chunk: "base64", format: "pcm_16", sample_rate: 48000 }, { status: "complete" }] }
+        // Convert PCM to WAV so browsers can play it (similar to FishAudio pattern)
+        const data = await response.json();
+        const output = data?.output;
+        
+        if (Array.isArray(output)) {
+          // Collect all audio chunks
+          const audioChunks = [];
+          let sampleRate = 48000;
+          let isPCM = false;
+          
+          for (const chunk of output) {
+            if (chunk?.format === 'pcm_16') {
+              isPCM = true;
+              sampleRate = chunk?.sample_rate || 48000;
+            }
+            const audioBase64 = chunk?.audio_chunk;
+            if (audioBase64) {
+              audioChunks.push(Buffer.from(audioBase64, 'base64'));
+            }
+          }
+          
+          if (audioChunks.length > 0) {
+            // Concatenate all PCM data
+            const pcmData = Buffer.concat(audioChunks);
+            
+            if (isPCM) {
+              // Create WAV header for 16-bit PCM mono, then send as audio/wav
+              // This matches FishAudio pattern: server converts to browser-playable format
+              const wavHeader = createWavHeader(pcmData.length, sampleRate, 1, 16);
+              const wavData = Buffer.concat([wavHeader, pcmData]);
+              
+              res.setHeader('Content-Type', 'audio/wav');
+              res.setHeader('Content-Length', wavData.length.toString());
+              res.send(wavData);
+            } else {
+              // Non-PCM, send as-is
+              res.setHeader('Content-Type', 'audio/mpeg');
+              res.send(pcmData);
+            }
+          } else {
+            res.status(502).json({ error: 'EchoTTS response missing audio chunks' });
+          }
+        } else {
+          res.status(502).json({ error: 'EchoTTS response missing output array' });
+        }
         return;
       }
 
@@ -520,6 +619,52 @@ app.post('/api/tts/stream', async (req, res) => {
           }
 
           return res.status(502).json({ error: 'FishAudio response missing audio payload', response: data });
+        }
+
+        if (service === 'echotts' || service === 'default') {
+          // EchoTTS batch: RunPod returns { output: [{ url: "...", s3_key: "...", filename: "...", metadata: {...}, status: "completed" }], status: "COMPLETED" }
+          // The URL is an S3 presigned URL to an OGG/Opus file
+          if (data?.error) {
+            return res.status(502).json(data);
+          }
+
+          const fetchAudioWithRetry = async (url) => {
+            const maxAttempts = 4;
+            let lastError;
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+              try {
+                const audioResponse = await fetch(url);
+                if (audioResponse.ok) {
+                  return audioResponse;
+                }
+                lastError = new Error(`Audio fetch failed with status ${audioResponse.status}`);
+              } catch (err) {
+                lastError = err;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+            }
+            throw lastError;
+          };
+
+          const output = data?.output;
+          const firstOutput = Array.isArray(output) ? output[0] : output;
+
+          // EchoTTS batch returns 'url' (not 'audio_url') - S3 presigned URL to OGG file
+          const audioUrl = firstOutput?.url || data?.url;
+          if (audioUrl) {
+            const audioResponse = await fetchAudioWithRetry(audioUrl);
+            // OGG/Opus is natively supported by browsers
+            const audioContentType = audioResponse.headers.get('content-type');
+            res.setHeader('Content-Type', audioContentType || 'audio/ogg');
+            if (audioResponse.body) {
+              // @ts-ignore
+              const readable = Readable.fromWeb(audioResponse.body);
+              return readable.pipe(res);
+            }
+            return res.end();
+          }
+
+          return res.status(502).json({ error: 'EchoTTS response missing url', response: data });
         }
 
         console.log('[Streaming Proxy] Batch response:', { audio_url: !!data.audio_url, audio_base64: !!data.audio_base64 });
