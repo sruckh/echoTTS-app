@@ -2,11 +2,9 @@ import { useState, useRef } from 'react';
 import { getServiceById } from '../config';
 
 /**
- * useStreamingTTS Hook (Unified MP3 Edition)
+ * useStreamingTTS Hook
  *
- * A robust, simplified player designed strictly for MP3 streaming.
- * It uses Media Source Extensions (MSE) and implements a "Chunk Accumulator"
- * to solve the "small chunk" network issue by buffering data before playback.
+ * Supports MP3 streaming via MSE and EchoTTS PCM streaming via WebAudio.
  */
 
 interface StreamingTTSOptions {
@@ -76,10 +74,13 @@ export function useStreamingTTS() {
       if (!response.body) throw new Error('No response body received');
 
       // Choose player based on service
-      // EchoTTS returns WAV format which MSE can't handle with MP3 codec
-      // Use Blob fallback for EchoTTS, MSE for others (MP3)
       if (serviceId === 'echotts' || serviceId === 'default') {
-        await playBlobFallback(response.body, 'audio/wav', setState, stopRef, onProgress, onComplete);
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('audio/')) {
+          await playBlobFallback(response.body, contentType, setState, stopRef, onProgress, onComplete);
+        } else {
+          await playEchoTtsPcmStream(response.body, setState, stopRef, onProgress, onComplete);
+        }
       } else {
         await playMp3Stream(response.body, setState, stopRef, onProgress, onComplete);
       }
@@ -91,6 +92,173 @@ export function useStreamingTTS() {
   };
 
   return { generateStreaming, stop, ...state };
+}
+
+function base64ToUint8Array(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function int16ToFloat32(int16: Int16Array): Float32Array {
+  const f32 = new Float32Array(int16.length);
+  for (let i = 0; i < int16.length; i += 1) {
+    f32[i] = Math.max(-1, int16[i] / 32768);
+  }
+  return f32;
+}
+
+async function playEchoTtsPcmStream(
+  readableStream: ReadableStream<Uint8Array>,
+  setState: React.Dispatch<React.SetStateAction<StreamingTTSState>>,
+  stopRef: React.MutableRefObject<(() => void) | null>,
+  onProgress?: (progress: number) => void,
+  onComplete?: (duration: number) => void
+) {
+  const reader = readableStream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let audioCtx: AudioContext | null = null;
+  let nextStartTime = 0;
+  let totalSamples = 0;
+  let baseSampleRate: number | null = null;
+  let finished = false;
+  let finishTimeout: number | null = null;
+  const sources: AudioBufferSourceNode[] = [];
+
+  const cleanup = () => {
+    if (finishTimeout !== null) {
+      window.clearTimeout(finishTimeout);
+      finishTimeout = null;
+    }
+    sources.forEach(source => {
+      try {
+        source.stop();
+      } catch (_e) {}
+      source.disconnect();
+    });
+    sources.length = 0;
+    if (audioCtx) {
+      audioCtx.close();
+      audioCtx = null;
+    }
+  };
+
+  stopRef.current = cleanup;
+
+  const schedulePcmChunk = (pcmBytes: Uint8Array, sampleRate: number) => {
+    if (!audioCtx) {
+      audioCtx = new AudioContext({ sampleRate });
+      nextStartTime = audioCtx.currentTime + 0.05;
+      baseSampleRate = sampleRate;
+    }
+
+    const int16 = new Int16Array(
+      pcmBytes.buffer,
+      pcmBytes.byteOffset,
+      Math.floor(pcmBytes.byteLength / 2)
+    );
+    const f32 = int16ToFloat32(int16);
+    const audioBuffer = audioCtx.createBuffer(1, f32.length, sampleRate);
+    // Ensure we pass a Float32Array backed by a plain ArrayBuffer for TS/DOM typings.
+    audioBuffer.copyToChannel(new Float32Array(f32), 0);
+
+    const source = audioCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(audioCtx.destination);
+
+    const startAt = Math.max(audioCtx.currentTime + 0.01, nextStartTime);
+    source.start(startAt);
+    nextStartTime = startAt + audioBuffer.duration;
+    totalSamples += f32.length;
+    sources.push(source);
+  };
+
+  const finalize = () => {
+    if (finished) return;
+    finished = true;
+    if (!audioCtx) {
+      onComplete?.(0);
+      setState(prev => ({ ...prev, isStreaming: false, progress: 100, totalDuration: 0 }));
+      return;
+    }
+    const remainingMs = Math.max(0, (nextStartTime - audioCtx.currentTime) * 1000);
+    const duration = baseSampleRate ? totalSamples / baseSampleRate : 0;
+    finishTimeout = window.setTimeout(() => {
+      onComplete?.(duration);
+      setState(prev => ({
+        ...prev,
+        isStreaming: false,
+        progress: 100,
+        totalDuration: duration
+      }));
+    }, remainingMs);
+  };
+
+  const handleChunkObject = (chunk: any) => {
+    if (!chunk) return;
+    if (chunk?.status === 'complete') {
+      finalize();
+      return;
+    }
+
+    const audioBase64 = chunk?.audio_chunk;
+    if (!audioBase64 || chunk?.format !== 'pcm_16') return;
+
+    const sampleRate = Number(chunk?.sample_rate) || 44100;
+    const pcmBytes = base64ToUint8Array(audioBase64);
+    schedulePcmChunk(pcmBytes, sampleRate);
+
+    onProgress?.(Math.min(95, Math.max(0, (chunk?.chunk || 0) * 2)));
+    setState(prev => ({ ...prev, chunksReceived: prev.chunksReceived + 1 }));
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      buffer += decoder.decode(value, { stream: true });
+      let lineEnd = buffer.indexOf('\n');
+      while (lineEnd !== -1) {
+        const rawLine = buffer.slice(0, lineEnd).trim();
+        buffer = buffer.slice(lineEnd + 1);
+        if (rawLine.length === 0) {
+          lineEnd = buffer.indexOf('\n');
+          continue;
+        }
+        const line = rawLine.startsWith('data:') ? rawLine.slice(5).trim() : rawLine;
+        try {
+          const parsed = JSON.parse(line);
+          if (Array.isArray(parsed?.output)) {
+            parsed.output.forEach(handleChunkObject);
+          } else {
+            handleChunkObject(parsed);
+          }
+        } catch (_e) {
+          buffer = `${line}\n${buffer}`;
+          break;
+        }
+        lineEnd = buffer.indexOf('\n');
+      }
+    }
+  }
+
+  const remaining = buffer.trim();
+  if (remaining.length > 0) {
+    try {
+      const parsed = JSON.parse(remaining);
+      if (Array.isArray(parsed?.output)) {
+        parsed.output.forEach(handleChunkObject);
+      } else {
+        handleChunkObject(parsed);
+      }
+    } catch (_e) {}
+  }
+
+  finalize();
 }
 
 /**

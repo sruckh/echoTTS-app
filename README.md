@@ -9,7 +9,7 @@ Echo: Multi-Model Voice Studio provides a comprehensive platform for converting 
 ## ✨ Features
 
 ### Core TTS Functionality
-- **🎵 Stream & Play**: Accumulates audio chunks and plays automatically upon completion
+- **🎵 Stream & Play**: Plays audio as chunks arrive (low-latency streaming)
 - **📚 Persistent History**: Keeps the last 5 generated audio clips in IndexedDB for quick replay
 - **💾 Download Support**: Export generated audio files as `.ogg` (Opus) format
 - **🔄 Auto-play**: Generated audio plays automatically with fallback handling
@@ -283,18 +283,73 @@ When creating custom voices:
 
 ### API Request Format
 
-The application sends OpenAI-compatible requests in this format:
+The browser sends requests to the local proxy:
 
-```javascript
+```json
 {
-  model: "gpt-4o-mini-tts",
-  input: "Your text here",
-  voice: "alloy",
-  response_format: "mp3"  // OpenAI API standard parameter
+  "service": "echotts",
+  "text": "Your text here",
+  "voice": "alloy",
+  "stream": true
 }
 ```
 
-**Note**: The `response_format` parameter follows the OpenAI API specification. Each service may return audio in its native format (MP3, OGG, Opus) regardless of the requested format. The browser's Audio element handles all formats automatically via content-type headers.
+Notes:
+- For non-stream requests, set `"stream": false`. The proxy returns a full audio blob.
+- The proxy adapts payloads for each backend (RunPod/OpenAI-compatible/etc).
+
+### EchoTTS Streaming Response (PCM)
+
+EchoTTS stream mode returns JSON/NDJSON chunks. Each item looks like:
+
+```json
+{
+  "status": "streaming",
+  "format": "pcm_16",
+  "audio_chunk": "<base64>",
+  "sample_rate": 44100,
+  "chunk": 1
+}
+```
+
+Final item:
+
+```json
+{
+  "status": "complete",
+  "total_chunks": 12,
+  "format": "pcm_16"
+}
+```
+
+The frontend decodes PCM and plays it with WebAudio using each chunk’s `sample_rate` (currently 44100 Hz).
+
+### EchoTTS Request Defaults (Source of Truth)
+
+EchoTTS requests are built server-side in `server.js`. Unless explicitly changed in code, the current defaults are:
+
+```json
+{
+  "input": {
+    "stream": true,
+    "output_format": "pcm_16",
+    "parameters": {
+      "num_steps": 40,
+      "cfg_scale_text": 3.0,
+      "cfg_scale_speaker": 10,
+      "sequence_length": 640,
+      "max_chars_per_chunk": 350,
+      "target_duration_seconds": 150,
+      "enable_crossfade": true,
+      "seed": "<Date.now() % 1000000>"
+    }
+  }
+}
+```
+
+Notes:
+- `seed` is randomized per request (same seed for all chunks in that request).
+- Streaming tuning params (`stream_chunk_seconds`, `stream_tail_ms`, `stream_crossfade_ms`) are not currently passed, so EchoTTS uses its backend defaults.
 
 ### TTS Quality Considerations
 
@@ -343,17 +398,17 @@ npx tsc --noEmit
 curl http://localhost:4173/health
 ```
 
-### Direct TTS API Test
+### TTS Proxy Test
 ```bash
-curl -X POST http://your-tts-service:8000/v1/audio/speech \
+curl -X POST http://localhost:4173/api/tts/stream \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-4o-mini-tts",
-    "input": "Hello, world!",
+    "service": "echotts",
+    "text": "Hello, world!",
     "voice": "alloy",
-    "response_format": "mp3"
+    "stream": false
   }' \
-  --output test.mp3
+  --output test.wav
 ```
 
 ### Test Voice Changing Endpoints

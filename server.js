@@ -270,7 +270,11 @@ app.post('/api/tts/stream', async (req, res) => {
           parameters: {
             num_steps: 40,
             cfg_scale_text: 3.0,
-            cfg_scale_speaker: 8.0,
+            cfg_scale_speaker: 10,
+            sequence_length: 640,
+            max_chars_per_chunk: 350,
+            target_duration_seconds: 150,
+            enable_crossfade: true,
             seed: Date.now() % 1000000
           }
         }
@@ -413,52 +417,30 @@ app.post('/api/tts/stream', async (req, res) => {
       }
 
       if (service === 'echotts' || service === 'default') {
-        // EchoTTS streaming: RunPod returns { output: [{ audio_chunk: "base64", format: "pcm_16", sample_rate: 48000 }, { status: "complete" }] }
-        // Convert PCM to WAV so browsers can play it (similar to FishAudio pattern)
-        const data = await response.json();
-        const output = data?.output;
-        
-        if (Array.isArray(output)) {
-          // Collect all audio chunks
-          const audioChunks = [];
-          let sampleRate = 48000;
-          let isPCM = false;
-          
-          for (const chunk of output) {
-            if (chunk?.format === 'pcm_16') {
-              isPCM = true;
-              sampleRate = chunk?.sample_rate || 48000;
-            }
-            const audioBase64 = chunk?.audio_chunk;
-            if (audioBase64) {
-              audioChunks.push(Buffer.from(audioBase64, 'base64'));
-            }
-          }
-          
-          if (audioChunks.length > 0) {
-            // Concatenate all PCM data
-            const pcmData = Buffer.concat(audioChunks);
-            
-            if (isPCM) {
-              // Create WAV header for 16-bit PCM mono, then send as audio/wav
-              // This matches FishAudio pattern: server converts to browser-playable format
-              const wavHeader = createWavHeader(pcmData.length, sampleRate, 1, 16);
-              const wavData = Buffer.concat([wavHeader, pcmData]);
-              
-              res.setHeader('Content-Type', 'audio/wav');
-              res.setHeader('Content-Length', wavData.length.toString());
-              res.send(wavData);
-            } else {
-              // Non-PCM, send as-is
-              res.setHeader('Content-Type', 'audio/mpeg');
-              res.send(pcmData);
-            }
-          } else {
-            res.status(502).json({ error: 'EchoTTS response missing audio chunks' });
-          }
-        } else {
-          res.status(502).json({ error: 'EchoTTS response missing output array' });
+        // EchoTTS streaming: pass through NDJSON/JSON stream to the frontend
+        const upstreamContentType = response.headers.get('content-type');
+        res.setHeader('Content-Type', upstreamContentType || 'application/x-ndjson');
+
+        if (response.body) {
+          // @ts-ignore
+          const readable = Readable.fromWeb(response.body);
+          return new Promise((resolve, reject) => {
+            readable.pipe(res);
+
+            readable.on('end', () => {
+              console.log('[Streaming Proxy] EchoTTS stream completed successfully');
+              res.end();
+              resolve();
+            });
+
+            readable.on('error', (err) => {
+              console.error('[Streaming Proxy] EchoTTS stream error:', err);
+              reject(err);
+            });
+          });
         }
+
+        res.end();
         return;
       }
 
