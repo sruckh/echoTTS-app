@@ -315,7 +315,12 @@ app.post('/api/tts/stream', async (req, res) => {
           text: resolvedText,
           voice,
           stream: shouldStream,
-          output_format: 'mp3'
+          output_format: 'mp3',
+          temperature: 0.85,
+          top_p: 0.9,
+          repetition_penalty: 1.25,
+          chunk_length: 280,
+          max_new_tokens: 1400
         }
       };
     } else {
