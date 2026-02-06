@@ -74,7 +74,7 @@ export function useStreamingTTS() {
       if (!response.body) throw new Error('No response body received');
 
       // Choose player based on service
-      if (serviceId === 'echotts' || serviceId === 'default') {
+      if (serviceId === 'echotts' || serviceId === 'default' || serviceId === 'indextts2') {
         const contentType = response.headers.get('content-type') || '';
         if (contentType.includes('audio/')) {
           await playBlobFallback(response.body, contentType, setState, stopRef, onProgress, onComplete);

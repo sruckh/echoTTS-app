@@ -39,6 +39,10 @@ services:
       - VITE_FISHAUDIO_TTS_ENDPOINT=${VITE_FISHAUDIO_TTS_ENDPOINT:-https://api.runpod.ai/v2/ifu9avnk1difqb}
       - VITE_FISHAUDIO_TTS_API_KEY=${VITE_FISHAUDIO_TTS_API_KEY:-}
 
+      # IndexTTS2 RunPod Serverless
+      - VITE_INDEXTTS2_TTS_ENDPOINT=${VITE_INDEXTTS2_TTS_ENDPOINT:-https://api.runpod.ai/v2/9nlqb0ujdib2zr}
+      - VITE_INDEXTTS2_TTS_API_KEY=${VITE_INDEXTTS2_TTS_API_KEY:-}
+
       # Alibaba Cloud Qwen-TTS (Singapore Region)
       - VITE_ALIBABA_API_KEY=${VITE_ALIBABA_API_KEY:-}
       - VITE_ALIBABA_VOICE_API=${VITE_ALIBABA_VOICE_API:-https://dashscope-intl.aliyuncs.com/api/v1/services/audio/tts/customization}

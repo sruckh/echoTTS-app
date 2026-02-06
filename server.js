@@ -232,6 +232,9 @@ app.post('/api/tts/stream', async (req, res) => {
     } else if (service === 'fishaudio') {
       targetEndpoint = process.env.VITE_FISHAUDIO_TTS_ENDPOINT;
       apiKey = process.env.VITE_FISHAUDIO_TTS_API_KEY;
+    } else if (service === 'indextts2') {
+      targetEndpoint = process.env.VITE_INDEXTTS2_TTS_ENDPOINT;
+      apiKey = process.env.VITE_INDEXTTS2_TTS_API_KEY;
     }
 
     if (!targetEndpoint) {
@@ -251,6 +254,7 @@ app.post('/api/tts/stream', async (req, res) => {
     // UNIFIED CONTRACT: All services return MP3 (audio/mpeg)
     let upstreamPayload;
     let upstreamUrl;
+    let indextts2RunpodBase = '';
 
     if (service === 'echotts' || service === 'default') {
       // EchoTTS: RunPod Serverless direct
@@ -323,6 +327,31 @@ app.post('/api/tts/stream', async (req, res) => {
           max_new_tokens: 1400
         }
       };
+    } else if (service === 'indextts2') {
+      // IndexTTS2: RunPod Serverless direct
+      // Docs: https://github.com/sruckh/indextts2-runpod
+      const runpodEndpoint = process.env.VITE_INDEXTTS2_TTS_ENDPOINT || targetEndpoint;
+      const runpodBase = runpodEndpoint.replace(/\/runsync\/?$/, '');
+      indextts2RunpodBase = runpodBase;
+      upstreamUrl = shouldStream ? `${runpodBase}/run` : `${runpodBase}/runsync`;
+      upstreamPayload = {
+        input: {
+          text: resolvedText,
+          speaker_voice: voice || undefined,
+          stream: shouldStream,
+          ...(shouldStream && { output_format: 'pcm_16' }),
+          emo_alpha: 0.8,
+          use_random: false,
+          enable_chunking: true,
+          max_chars_per_chunk: 250,
+          enable_crossfade: true,
+          crossfade_ms: 130,
+          ...(shouldStream && {
+            stream_max_chars_per_chunk: 250,
+            stream_crossfade_ms: 130
+          })
+        }
+      };
     } else {
       // VibeVoice: Always uses /v1/audio/speech, stream flag controls mode
       upstreamUrl = targetEndpoint;
@@ -361,6 +390,128 @@ app.post('/api/tts/stream', async (req, res) => {
       // Streaming: Return raw audio bytes
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
+
+      if (service === 'indextts2') {
+        // True streaming path for RunPod:
+        // 1) Submit async job to /run
+        // 2) Stream chunks as they are produced from /stream/{id}
+        const streamStartMs = Date.now();
+        const runData = await response.json();
+        const jobId = runData?.id;
+        if (!jobId) {
+          return res.status(502).json({ error: 'IndexTTS2 stream run did not return job id', response: runData });
+        }
+
+        console.log(`[IndexTTS2 Streaming] Job submitted in ${Date.now() - streamStartMs}ms (jobId=${jobId})`);
+
+        const statusUrl = `${indextts2RunpodBase}/status/${jobId}`;
+        console.log(`[IndexTTS2 Streaming] Polling ${statusUrl}`);
+
+        const statusHeaders = {};
+        if (apiKey) {
+          statusHeaders['Authorization'] = `Bearer ${apiKey}`;
+        }
+
+        res.setHeader('Content-Type', 'application/x-ndjson');
+
+        let emittedChunks = 0;
+        let sawComplete = false;
+        let firstChunkLogged = false;
+        const seenChunkKeys = new Set();
+        const maxPolls = 240; // up to 10 minutes at 2.5s interval
+
+        const collectChunkObjects = (node, out, depth = 0) => {
+          if (node === null || node === undefined || depth > 12) return;
+          if (Array.isArray(node)) {
+            for (const item of node) collectChunkObjects(item, out, depth + 1);
+            return;
+          }
+          if (typeof node !== 'object') return;
+
+          const hasAudioChunk = typeof node.audio_chunk === 'string' && node.audio_chunk.length > 0;
+          const isComplete = node.status === 'complete' || node.status === 'COMPLETED';
+          if (hasAudioChunk || isComplete) {
+            out.push(node);
+          }
+
+          for (const value of Object.values(node)) {
+            collectChunkObjects(value, out, depth + 1);
+          }
+        };
+
+        for (let poll = 1; poll <= maxPolls; poll += 1) {
+          const statusController = new AbortController();
+          const statusTimeout = setTimeout(() => statusController.abort(), 30000);
+
+          let statusResponse;
+          try {
+            statusResponse = await fetch(statusUrl, {
+              method: 'GET',
+              headers: statusHeaders,
+              signal: statusController.signal
+            });
+          } finally {
+            clearTimeout(statusTimeout);
+          }
+
+          if (!statusResponse.ok) {
+            const errorText = await statusResponse.text();
+            console.error(`[IndexTTS2 Streaming] Status endpoint error (${statusResponse.status})`);
+            return res.status(statusResponse.status).send(errorText);
+          }
+
+          const statusData = await statusResponse.json();
+          if (poll <= 3) {
+            console.log(`[IndexTTS2 Streaming] Poll ${poll} status=${statusData?.status}`);
+          }
+
+          const chunks = [];
+          collectChunkObjects(statusData?.output, chunks);
+
+          for (const chunk of chunks) {
+            const isComplete = chunk?.status === 'complete' || chunk?.status === 'COMPLETED';
+            const chunkKey = chunk?.audio_chunk
+              ? `audio:${chunk?.chunk ?? emittedChunks}:${chunk.audio_chunk.length}`
+              : `complete:${chunk?.total_chunks ?? 'n/a'}`;
+
+            if (seenChunkKeys.has(chunkKey)) continue;
+            seenChunkKeys.add(chunkKey);
+
+            if (!firstChunkLogged && chunk?.audio_chunk) {
+              firstChunkLogged = true;
+              console.log(`[IndexTTS2 Streaming] First upstream chunk in ${Date.now() - streamStartMs}ms (jobId=${jobId})`);
+            }
+
+            res.write(`${JSON.stringify(chunk)}\n`);
+            emittedChunks += 1;
+
+            if (isComplete) {
+              sawComplete = true;
+            }
+          }
+
+          const terminal = statusData?.status === 'COMPLETED' || statusData?.status === 'FAILED' || statusData?.status === 'CANCELLED';
+          if (terminal) {
+            if (!sawComplete && emittedChunks > 0) {
+              res.write(`${JSON.stringify({ status: 'complete' })}\n`);
+            }
+            if (statusData?.status === 'FAILED' || statusData?.status === 'CANCELLED') {
+              console.error(`[IndexTTS2 Streaming] Job ended with status=${statusData?.status} (jobId=${jobId})`);
+            }
+            break;
+          }
+
+          await new Promise((resolve) => setTimeout(resolve, 2500));
+        }
+
+        if (emittedChunks === 0) {
+          console.warn(`[IndexTTS2 Streaming] No chunk objects emitted (jobId=${jobId})`);
+        }
+
+        console.log(`[IndexTTS2 Streaming] Stream completed in ${Date.now() - streamStartMs}ms (jobId=${jobId}, emitted=${emittedChunks})`);
+        res.end();
+        return;
+      }
 
       if (service === 'qwen3-open') {
         res.setHeader('Content-Type', 'audio/mpeg');
@@ -606,6 +757,60 @@ app.post('/api/tts/stream', async (req, res) => {
           }
 
           return res.status(502).json({ error: 'FishAudio response missing audio payload', response: data });
+        }
+
+        if (service === 'indextts2') {
+          // IndexTTS2 batch usually returns an S3 URL in url/audio_url (possibly nested under output).
+          if (data?.error) {
+            return res.status(502).json(data);
+          }
+
+          const fetchAudioWithRetry = async (url) => {
+            const maxAttempts = 4;
+            let lastError;
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+              try {
+                const audioResponse = await fetch(url);
+                if (audioResponse.ok) {
+                  return audioResponse;
+                }
+                lastError = new Error(`Audio fetch failed with status ${audioResponse.status}`);
+              } catch (err) {
+                lastError = err;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+            }
+            throw lastError;
+          };
+
+          const output = data?.output;
+          const firstOutput = Array.isArray(output) ? output[0] : output;
+          const audioUrl =
+            firstOutput?.url ||
+            firstOutput?.audio_url ||
+            data?.url ||
+            data?.audio_url;
+
+          if (audioUrl) {
+            const audioResponse = await fetchAudioWithRetry(audioUrl);
+            const audioContentType = audioResponse.headers.get('content-type');
+            res.setHeader('Content-Type', audioContentType || 'audio/ogg');
+            if (audioResponse.body) {
+              // @ts-ignore
+              const readable = Readable.fromWeb(audioResponse.body);
+              return readable.pipe(res);
+            }
+            return res.end();
+          }
+
+          const audioBase64 = firstOutput?.audio_base64 || data?.audio_base64;
+          if (audioBase64) {
+            const audioBuffer = Buffer.from(audioBase64, 'base64');
+            res.setHeader('Content-Type', 'audio/mpeg');
+            return res.send(audioBuffer);
+          }
+
+          return res.status(502).json({ error: 'IndexTTS2 response missing audio payload', response: data });
         }
 
         if (service === 'echotts' || service === 'default') {

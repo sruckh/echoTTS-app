@@ -4,7 +4,7 @@
 [![React](https://img.shields.io/badge/React-18.2+-61DAFB.svg)](https://reactjs.org/)
 [![Vite](https://img.shields.io/badge/Vite-5.0+-646CFF.svg)](https://vitejs.dev/)
 
-Echo: Multi-Model Voice Studio provides a comprehensive platform for converting text to speech, speech to text, and voice changing using multiple state-of-the-art models including EchoTTS, Vibe Voice, Chatterbox, and Alibaba Qwen-TTS. Features include dynamic voice creation, real-time streaming (for supported models), user authentication via Supabase, STT transcription with timestamp support, voice changing with LinaCodec VC, and persistent audio history.
+Echo: Multi-Model Voice Studio provides a comprehensive platform for converting text to speech, speech to text, and voice changing using multiple state-of-the-art models including EchoTTS, Qwen3-TTS (opensource), FishAudio S1-mini, IndexTTS2, Vibe Voice, Chatterbox, and Alibaba Qwen-TTS. Features include dynamic voice creation, real-time streaming (for supported models), user authentication via Supabase, STT transcription with timestamp support, voice changing with LinaCodec VC, and persistent audio history.
 
 ## ✨ Features
 
@@ -213,6 +213,22 @@ Echo TTS employs a comprehensive multi-service architecture with authentication,
 | `VITE_OPEN_AI_TTS_MODEL` | Model ID for TTS requests | ❌ | `gpt-4o-mini-tts` |
 | `VITE_OPEN_AI_TTS_VOICES` | JSON array of default voices (deprecated) | ❌ | `[{"id":"alloy","label":"Alloy"},...]` |
 
+#### Multi-Service TTS Configuration
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `VITE_ECHOTTS_RUNPOD_ENDPOINT` | EchoTTS RunPod base endpoint | ✅ | - |
+| `VITE_ECHOTTS_RUNPOD_API_KEY` | EchoTTS RunPod API key | ✅ | - |
+| `VITE_QWEN3_TTS_ENDPOINT` | Qwen3-TTS RunPod base endpoint | ✅ | - |
+| `VITE_QWEN3_TTS_API_KEY` | Qwen3-TTS RunPod API key | ✅ | - |
+| `VITE_FISHAUDIO_TTS_ENDPOINT` | FishAudio RunPod base endpoint | ✅ | - |
+| `VITE_FISHAUDIO_TTS_API_KEY` | FishAudio RunPod API key | ✅ | - |
+| `VITE_INDEXTTS2_TTS_ENDPOINT` | IndexTTS2 RunPod base endpoint | ✅ | - |
+| `VITE_INDEXTTS2_TTS_API_KEY` | IndexTTS2 RunPod API key | ✅ | - |
+| `VITE_VIBEVOICE_ENDPOINT` | Vibe Voice OpenAI-compatible endpoint | ✅ | - |
+| `VITE_VIBEVOICE_API_KEY` | Vibe Voice API key | ❌ | - |
+| `VITE_CHATTERBOX_ENDPOINT` | Chatterbox OpenAI-compatible endpoint | ✅ | - |
+| `VITE_CHATTERBOX_API_KEY` | Chatterbox API key | ❌ | - |
+
 #### Supabase Authentication
 | Variable | Description | Required | Default |
 |----------|-------------|----------|---------|
@@ -297,6 +313,14 @@ The browser sends requests to the local proxy:
 Notes:
 - For non-stream requests, set `"stream": false`. The proxy returns a full audio blob.
 - The proxy adapts payloads for each backend (RunPod/OpenAI-compatible/etc).
+- Common `service` values:
+  - `echotts`
+  - `qwen3-open`
+  - `fishaudio`
+  - `indextts2`
+  - `vibevoice`
+  - `chatterbox`
+  - `alibaba`
 
 ### EchoTTS Streaming Response (PCM)
 
@@ -353,7 +377,7 @@ Notes:
 
 ### TTS Quality Considerations
 
-When using RunPod-based TTS services (Vibe Voice, Chatterbox):
+When using RunPod-based TTS services (EchoTTS, Qwen3-TTS, FishAudio, IndexTTS2):
 
 1. **Text Length Matters**:
    - ⚠️ **Short text (<100 characters)**: May produce inconsistent voice characteristics
@@ -366,8 +390,10 @@ When using RunPod-based TTS services (Vibe Voice, Chatterbox):
    - Different chunks without seed control may exhibit slight voice variations
 
 3. **Multi-Service Comparison**:
-   - **EchoTTS**: Direct OpenAI endpoint, works well with any text length
-   - **Vibe Voice/Chatterbox**: RunPod-based, optimized for longer text inputs
+   - **EchoTTS**: RunPod Serverless direct with PCM stream support
+   - **Qwen3-TTS/FishAudio**: RunPod Serverless direct integrations
+   - **IndexTTS2**: RunPod Serverless direct integration with stream + batch support
+   - **Vibe Voice/Chatterbox**: OpenAI-compatible service integrations
 
 ## 🛠️ Development Commands
 
@@ -409,6 +435,18 @@ curl -X POST http://localhost:4173/api/tts/stream \
     "stream": false
   }' \
   --output test.wav
+```
+
+### IndexTTS2 Stream Test
+```bash
+curl -X POST http://localhost:4173/api/tts/stream \
+  -H "Content-Type: application/json" \
+  -d '{
+    "service": "indextts2",
+    "text": "This is an IndexTTS2 streaming test.",
+    "voice": "Kim.wav",
+    "stream": true
+  }'
 ```
 
 ### Test Voice Changing Endpoints

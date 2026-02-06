@@ -100,6 +100,19 @@ export const getConfig = () => {
     });
   }
 
+  // IndexTTS2 - RunPod Serverless direct
+  const indextts2Endpoint = env.VITE_INDEXTTS2_TTS_ENDPOINT || importMetaEnv.VITE_INDEXTTS2_TTS_ENDPOINT;
+  const indextts2ApiKey = env.VITE_INDEXTTS2_TTS_API_KEY || importMetaEnv.VITE_INDEXTTS2_TTS_API_KEY;
+  if (indextts2Endpoint && indextts2ApiKey) {
+    services.push({
+      id: 'indextts2',
+      label: 'IndexTTS2',
+      endpoint: indextts2Endpoint,
+      apiKey: indextts2ApiKey,
+      streamingSupported: true
+    });
+  }
+
   // Alibaba Cloud Qwen-TTS
   const alibabaApiKey = env.VITE_ALIBABA_API_KEY || importMetaEnv.VITE_ALIBABA_API_KEY;
   const alibabaVoiceApi = env.VITE_ALIBABA_VOICE_API || importMetaEnv.VITE_ALIBABA_VOICE_API;
