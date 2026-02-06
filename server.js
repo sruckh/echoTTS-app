@@ -404,21 +404,22 @@ app.post('/api/tts/stream', async (req, res) => {
 
         console.log(`[IndexTTS2 Streaming] Job submitted in ${Date.now() - streamStartMs}ms (jobId=${jobId})`);
 
-        const statusUrl = `${indextts2RunpodBase}/status/${jobId}`;
-        console.log(`[IndexTTS2 Streaming] Polling ${statusUrl}`);
+        const streamUrl = `${indextts2RunpodBase}/stream/${jobId}`;
+        console.log(`[IndexTTS2 Streaming] Connecting to ${streamUrl}`);
 
-        const statusHeaders = {};
+        const streamHeaders = {};
         if (apiKey) {
-          statusHeaders['Authorization'] = `Bearer ${apiKey}`;
+          streamHeaders['Authorization'] = `Bearer ${apiKey}`;
         }
 
         res.setHeader('Content-Type', 'application/x-ndjson');
 
         let emittedChunks = 0;
         let sawComplete = false;
+        let sawFailed = false;
+        let sawTerminal = false;
         let firstChunkLogged = false;
         const seenChunkKeys = new Set();
-        const maxPolls = 240; // up to 10 minutes at 2.5s interval
 
         const collectChunkObjects = (node, out, depth = 0) => {
           if (node === null || node === undefined || depth > 12) return;
@@ -439,40 +440,23 @@ app.post('/api/tts/stream', async (req, res) => {
           }
         };
 
-        for (let poll = 1; poll <= maxPolls; poll += 1) {
-          const statusController = new AbortController();
-          const statusTimeout = setTimeout(() => statusController.abort(), 30000);
-
-          let statusResponse;
-          try {
-            statusResponse = await fetch(statusUrl, {
-              method: 'GET',
-              headers: statusHeaders,
-              signal: statusController.signal
-            });
-          } finally {
-            clearTimeout(statusTimeout);
-          }
-
-          if (!statusResponse.ok) {
-            const errorText = await statusResponse.text();
-            console.error(`[IndexTTS2 Streaming] Status endpoint error (${statusResponse.status})`);
-            return res.status(statusResponse.status).send(errorText);
-          }
-
-          const statusData = await statusResponse.json();
-          if (poll <= 3) {
-            console.log(`[IndexTTS2 Streaming] Poll ${poll} status=${statusData?.status}`);
+        const emitChunksFromPayload = (payload) => {
+          const topLevelStatus = payload?.status;
+          if (topLevelStatus === 'COMPLETED') sawTerminal = true;
+          if (topLevelStatus === 'FAILED' || topLevelStatus === 'CANCELLED') {
+            sawFailed = true;
+            sawTerminal = true;
           }
 
           const chunks = [];
-          collectChunkObjects(statusData?.output, chunks);
+          collectChunkObjects(payload, chunks);
 
           for (const chunk of chunks) {
             const isComplete = chunk?.status === 'complete' || chunk?.status === 'COMPLETED';
+            const isFailed = chunk?.status === 'FAILED' || chunk?.status === 'CANCELLED';
             const chunkKey = chunk?.audio_chunk
-              ? `audio:${chunk?.chunk ?? emittedChunks}:${chunk.audio_chunk.length}`
-              : `complete:${chunk?.total_chunks ?? 'n/a'}`;
+              ? `audio:${chunk?.chunk ?? 'n/a'}:${chunk.audio_chunk.length}:${chunk.audio_chunk.slice(0, 24)}`
+              : `status:${chunk?.status ?? 'unknown'}:${chunk?.total_chunks ?? 'n/a'}`;
 
             if (seenChunkKeys.has(chunkKey)) continue;
             seenChunkKeys.add(chunkKey);
@@ -485,23 +469,86 @@ app.post('/api/tts/stream', async (req, res) => {
             res.write(`${JSON.stringify(chunk)}\n`);
             emittedChunks += 1;
 
-            if (isComplete) {
-              sawComplete = true;
+            if (isComplete) sawComplete = true;
+            if (isComplete) sawTerminal = true;
+            if (isFailed) {
+              sawFailed = true;
+              sawTerminal = true;
             }
           }
+        };
 
-          const terminal = statusData?.status === 'COMPLETED' || statusData?.status === 'FAILED' || statusData?.status === 'CANCELLED';
-          if (terminal) {
-            if (!sawComplete && emittedChunks > 0) {
-              res.write(`${JSON.stringify({ status: 'complete' })}\n`);
+        const maxStreamPolls = 180; // 180 * 1s = 3 minutes
+        for (let poll = 1; poll <= maxStreamPolls; poll += 1) {
+          const streamController = new AbortController();
+          const streamTimeout = setTimeout(() => streamController.abort(), 30000);
+
+          try {
+            const streamResponse = await fetch(streamUrl, {
+              method: 'GET',
+              headers: streamHeaders,
+              signal: streamController.signal
+            });
+
+            if (!streamResponse.ok) {
+              const errorText = await streamResponse.text();
+              console.error(`[IndexTTS2 Streaming] Stream endpoint error (${streamResponse.status})`);
+              return res.status(streamResponse.status).send(errorText);
             }
-            if (statusData?.status === 'FAILED' || statusData?.status === 'CANCELLED') {
-              console.error(`[IndexTTS2 Streaming] Job ended with status=${statusData?.status} (jobId=${jobId})`);
+
+            let buffer = '';
+            const decoder = new TextDecoder();
+
+            const processLine = (line) => {
+              const trimmed = line.trim();
+              if (!trimmed) return;
+
+              const payloadText = trimmed.startsWith('data:') ? trimmed.slice(5).trim() : trimmed;
+              if (!payloadText || payloadText === '[DONE]') return;
+
+              try {
+                const payload = JSON.parse(payloadText);
+                emitChunksFromPayload(payload);
+              } catch {
+                // Keep going on non-JSON lines.
+              }
+            };
+
+            if (streamResponse.body) {
+              // @ts-ignore
+              const reader = streamResponse.body.getReader();
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                let newlineIndex = buffer.indexOf('\n');
+                while (newlineIndex !== -1) {
+                  const line = buffer.slice(0, newlineIndex);
+                  buffer = buffer.slice(newlineIndex + 1);
+                  processLine(line);
+                  newlineIndex = buffer.indexOf('\n');
+                }
+              }
+
+              buffer += decoder.decode();
+              if (buffer.trim()) {
+                processLine(buffer);
+              }
+            } else {
+              const payload = await streamResponse.json();
+              emitChunksFromPayload(payload);
             }
-            break;
+          } finally {
+            clearTimeout(streamTimeout);
           }
 
-          await new Promise((resolve) => setTimeout(resolve, 2500));
+          if (sawTerminal) break;
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+
+        if (!sawComplete && emittedChunks > 0 && !sawFailed) {
+          res.write(`${JSON.stringify({ status: 'complete' })}\n`);
         }
 
         if (emittedChunks === 0) {

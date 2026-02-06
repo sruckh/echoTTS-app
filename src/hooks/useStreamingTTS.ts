@@ -206,7 +206,9 @@ async function playEchoTtsPcmStream(
     }
 
     const audioBase64 = chunk?.audio_chunk;
-    if (!audioBase64 || chunk?.format !== 'pcm_16') return;
+    const audioFormat = chunk?.format;
+    // Some backends omit format on subsequent chunks; treat missing format as pcm_16.
+    if (!audioBase64 || (audioFormat && audioFormat !== 'pcm_16')) return;
 
     const sampleRate = Number(chunk?.sample_rate) || 44100;
     const pcmBytes = base64ToUint8Array(audioBase64);
