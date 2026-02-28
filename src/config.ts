@@ -113,6 +113,19 @@ export const getConfig = () => {
     });
   }
 
+  // Moss-TTS - RunPod Serverless direct
+  const mossttsEndpoint = env.VITE_MOSSTTS_TTS_ENDPOINT || importMetaEnv.VITE_MOSSTTS_TTS_ENDPOINT;
+  const mossttsApiKey = env.VITE_MOSSTTS_TTS_API_KEY || importMetaEnv.VITE_MOSSTTS_TTS_API_KEY;
+  if (mossttsEndpoint && mossttsApiKey) {
+    services.push({
+      id: 'mosstts',
+      label: 'Moss-TTS',
+      endpoint: mossttsEndpoint,
+      apiKey: mossttsApiKey,
+      streamingSupported: true
+    });
+  }
+
   // Alibaba Cloud Qwen-TTS
   const alibabaApiKey = env.VITE_ALIBABA_API_KEY || importMetaEnv.VITE_ALIBABA_API_KEY;
   const alibabaVoiceApi = env.VITE_ALIBABA_VOICE_API || importMetaEnv.VITE_ALIBABA_VOICE_API;

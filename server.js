@@ -235,6 +235,9 @@ app.post('/api/tts/stream', async (req, res) => {
     } else if (service === 'indextts2') {
       targetEndpoint = process.env.VITE_INDEXTTS2_TTS_ENDPOINT;
       apiKey = process.env.VITE_INDEXTTS2_TTS_API_KEY;
+    } else if (service === 'mosstts') {
+      targetEndpoint = process.env.VITE_MOSSTTS_TTS_ENDPOINT;
+      apiKey = process.env.VITE_MOSSTTS_TTS_API_KEY;
     }
 
     if (!targetEndpoint) {
@@ -254,7 +257,7 @@ app.post('/api/tts/stream', async (req, res) => {
     // UNIFIED CONTRACT: All services return MP3 (audio/mpeg)
     let upstreamPayload;
     let upstreamUrl;
-    let indextts2RunpodBase = '';
+    let runpodBaseForStreaming = '';
 
     if (service === 'echotts' || service === 'default') {
       // EchoTTS: RunPod Serverless direct
@@ -332,7 +335,7 @@ app.post('/api/tts/stream', async (req, res) => {
       // Docs: https://github.com/sruckh/indextts2-runpod
       const runpodEndpoint = process.env.VITE_INDEXTTS2_TTS_ENDPOINT || targetEndpoint;
       const runpodBase = runpodEndpoint.replace(/\/runsync\/?$/, '');
-      indextts2RunpodBase = runpodBase;
+      runpodBaseForStreaming = runpodBase;
       upstreamUrl = shouldStream ? `${runpodBase}/run` : `${runpodBase}/runsync`;
       upstreamPayload = {
         input: {
@@ -349,6 +352,37 @@ app.post('/api/tts/stream', async (req, res) => {
           ...(shouldStream && {
             stream_max_chars_per_chunk: 250,
             stream_crossfade_ms: 130
+          })
+        }
+      };
+    } else if (service === 'mosstts') {
+      // Moss-TTS: RunPod Serverless direct
+      // Docs: https://github.com/sruckh/Moss-TTS-Runpod
+      const runpodEndpoint = process.env.VITE_MOSSTTS_TTS_ENDPOINT || targetEndpoint;
+      const runpodBase = runpodEndpoint.replace(/\/runsync\/?$/, '');
+      runpodBaseForStreaming = runpodBase;
+      upstreamUrl = shouldStream ? `${runpodBase}/run` : `${runpodBase}/runsync`;
+
+      // Moss-TTS requires the .wav extension for built-in reference voices (e.g. Dorota.wav)
+      let resolvedVoice = voice;
+      if (resolvedVoice && !resolvedVoice.includes('.') && !resolvedVoice.startsWith('http')) {
+        resolvedVoice = `${resolvedVoice}.wav`;
+      }
+
+      upstreamPayload = {
+        input: {
+          text: resolvedText,
+          mode: 'generation',
+          reference_audio: resolvedVoice || undefined,
+          stream: shouldStream,
+          ...(shouldStream && { output_format: 'pcm_16' }),
+          enable_chunking: true,
+          max_chars_per_chunk: 350,
+          enable_crossfade: true,
+          crossfade_ms: 150,
+          ...(shouldStream && {
+            stream_max_chars_per_chunk: 250,
+            stream_crossfade_ms: 150
           })
         }
       };
@@ -391,7 +425,7 @@ app.post('/api/tts/stream', async (req, res) => {
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
 
-      if (service === 'indextts2') {
+      if (service === 'indextts2' || service === 'mosstts') {
         // True streaming path for RunPod:
         // 1) Submit async job to /run
         // 2) Stream chunks as they are produced from /stream/{id}
@@ -399,13 +433,13 @@ app.post('/api/tts/stream', async (req, res) => {
         const runData = await response.json();
         const jobId = runData?.id;
         if (!jobId) {
-          return res.status(502).json({ error: 'IndexTTS2 stream run did not return job id', response: runData });
+          return res.status(502).json({ error: `${service} stream run did not return job id`, response: runData });
         }
 
-        console.log(`[IndexTTS2 Streaming] Job submitted in ${Date.now() - streamStartMs}ms (jobId=${jobId})`);
+        console.log(`[${service} Streaming] Job submitted in ${Date.now() - streamStartMs}ms (jobId=${jobId})`);
 
-        const streamUrl = `${indextts2RunpodBase}/stream/${jobId}`;
-        console.log(`[IndexTTS2 Streaming] Connecting to ${streamUrl}`);
+        const streamUrl = `${runpodBaseForStreaming}/stream/${jobId}`;
+        console.log(`[${service} Streaming] Connecting to ${streamUrl}`);
 
         const streamHeaders = {};
         if (apiKey) {
@@ -806,8 +840,8 @@ app.post('/api/tts/stream', async (req, res) => {
           return res.status(502).json({ error: 'FishAudio response missing audio payload', response: data });
         }
 
-        if (service === 'indextts2') {
-          // IndexTTS2 batch usually returns an S3 URL in url/audio_url (possibly nested under output).
+        if (service === 'indextts2' || service === 'mosstts') {
+          // IndexTTS2 and Moss-TTS batch usually returns an S3 URL in url/audio_url (possibly nested under output).
           if (data?.error) {
             return res.status(502).json(data);
           }
@@ -857,7 +891,7 @@ app.post('/api/tts/stream', async (req, res) => {
             return res.send(audioBuffer);
           }
 
-          return res.status(502).json({ error: 'IndexTTS2 response missing audio payload', response: data });
+          return res.status(502).json({ error: `${service} response missing audio payload`, response: data });
         }
 
         if (service === 'echotts' || service === 'default') {
