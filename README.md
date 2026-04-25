@@ -43,7 +43,9 @@ Echo: Multi-Model Voice Studio provides a comprehensive platform for converting 
 
 ### SoundFX Features
 - **🔊 Text-to-Sound Effect**: Generate ambient soundscapes and sound effects from text descriptions
+- **🎯 Prompt Guidance**: UI guidance emphasizing environmental/ambient descriptions (the model's strength)
 - **⏱️ Duration Control**: Specify target duration from 1-30 seconds via slider
+- **🎛️ Advanced Parameters**: Collapsible section with temperature, top_p, top_k, and repetition_penalty sliders (defaults match model recommendations)
 - **🤖 RunPod Serverless**: MOSS-SoundEffect (8B) model for high-fidelity audio generation
 - **🎵 WAV Output**: Native 24kHz WAV output with inline audio player
 - **💾 Download Support**: Download generated sound effects as WAV files
@@ -552,7 +554,7 @@ echoTTS-app/
   - `useVoices`: Dynamic voice listing with real-time updates
   - `useVoiceCreation`: Voice upload, recording, and submission workflow
   - `useSTT`: STT API integration with S3 upload and transcription
-  - `useSoundFX`: SoundFX generation with text-to-sound-effect API
+  - `useSoundFX`: SoundFX generation with text-to-sound-effect API and optional advanced decoding parameters
   - `useFileUpload`: File validation, S3 upload with progress tracking
 - **React Contexts**:
   - `ThemeContext`: Light/dark mode theming with MUI
@@ -647,12 +649,14 @@ The voice changing feature enables users to transform source audio content with 
 
 The SoundFX feature generates sound effects from text descriptions using the MOSS-SoundEffect (8B) model via RunPod Serverless. Key implementation details:
 
-1. **Frontend Component**: `SoundFXTab.tsx` provides text input, duration slider, and audio playback
-2. **API Endpoint**: `POST /api/soundfx/generate` — server-side proxy to RunPod with Bearer token auth
-3. **Output**: 24kHz WAV delivered via S3 presigned URL from the MossSFX worker
-4. **Duration Control**: 1-30 seconds via slider, clamped server-side
-5. **No Authentication**: Open access like STT and Voice Changing
-6. **No Client-Side S3**: The MossSFX worker handles its own S3 upload — the app only receives the presigned URL
+1. **Frontend Component**: `SoundFXTab.tsx` provides text input, duration slider, audio playback, and collapsible advanced parameters
+2. **Prompt Guidance**: Info alert and helper text guide users toward environmental/ambient descriptions (weather, nature, urban scenes) — the model's design strength. Rotating example placeholders provide inspiration.
+3. **Advanced Parameters**: Optional collapsible section exposing `audio_temperature` (default 1.5), `audio_top_p` (0.6), `audio_top_k` (50), and `audio_repetition_penalty` (1.2) — matching the model's recommended decoding hyperparameters
+4. **API Endpoint**: `POST /api/soundfx/generate` — server-side proxy to RunPod with Bearer token auth, forwards advanced params when provided
+5. **Output**: 24kHz WAV delivered via S3 presigned URL from the MossSFX worker
+6. **Duration Control**: 1-30 seconds via slider, clamped server-side
+7. **No Authentication**: Open access like STT and Voice Changing
+8. **No Client-Side S3**: The MossSFX worker handles its own S3 upload — the app only receives the presigned URL
 
 ### Setting Up Development Environment
 

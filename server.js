@@ -1332,6 +1332,10 @@ app.post('/api/soundfx/generate', async (req, res) => {
         input: {
           text: text.trim(),
           duration_seconds: duration,
+          ...(req.body.audio_temperature != null && { audio_temperature: parseFloat(req.body.audio_temperature) }),
+          ...(req.body.audio_top_p != null && { audio_top_p: parseFloat(req.body.audio_top_p) }),
+          ...(req.body.audio_top_k != null && { audio_top_k: parseInt(req.body.audio_top_k, 10) }),
+          ...(req.body.audio_repetition_penalty != null && { audio_repetition_penalty: parseFloat(req.body.audio_repetition_penalty) }),
         }
       })
     });

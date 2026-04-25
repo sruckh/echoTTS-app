@@ -9,11 +9,18 @@ export interface SoundFXResult {
   };
 }
 
+export interface SoundFXAdvancedParams {
+  audio_temperature?: number;
+  audio_top_p?: number;
+  audio_top_k?: number;
+  audio_repetition_penalty?: number;
+}
+
 export interface UseSoundFXReturn {
   loading: boolean;
   error: string | null;
   result: SoundFXResult | null;
-  generate: (text: string, durationSeconds?: number) => Promise<SoundFXResult | null>;
+  generate: (text: string, durationSeconds?: number, advanced?: SoundFXAdvancedParams) => Promise<SoundFXResult | null>;
   clearError: () => void;
   clearResult: () => void;
 }
@@ -24,7 +31,7 @@ export function useSoundFX(): UseSoundFXReturn {
   const [result, setResult] = useState<SoundFXResult | null>(null);
 
   const generate = useCallback(
-    async (text: string, durationSeconds?: number): Promise<SoundFXResult | null> => {
+    async (text: string, durationSeconds?: number, advanced?: SoundFXAdvancedParams): Promise<SoundFXResult | null> => {
       setLoading(true);
       setError(null);
       setResult(null);
@@ -36,6 +43,7 @@ export function useSoundFX(): UseSoundFXReturn {
           body: JSON.stringify({
             text,
             duration_seconds: durationSeconds,
+            ...advanced,
           }),
         });
 
