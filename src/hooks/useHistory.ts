@@ -5,6 +5,7 @@ export interface HistoryItem {
   id: string;
   text: string;
   voice: string;
+  service?: string;
   blob: Blob;
   timestamp: number;
 }

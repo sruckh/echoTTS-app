@@ -147,6 +147,7 @@ function App() {
       id: `${timestamp}-${Math.random().toString(36).substr(2, 9)}`,
       text,
       voice,
+      service: selectedService?.label || selectedService?.id,
       blob,
       timestamp,
     };
@@ -442,7 +443,7 @@ function App() {
                         {item.text}
                     </Typography>
                   }
-                  secondary={`${item.voice} • ${new Date(item.timestamp).toLocaleTimeString()}`}
+                  secondary={[item.voice, item.service, new Date(item.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })].filter(Boolean).join(' • ')}
                   sx={{ pr: 1 }}
                 />
                 <ListItemSecondaryAction>
