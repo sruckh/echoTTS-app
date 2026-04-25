@@ -172,7 +172,7 @@ Echo TTS employs a comprehensive multi-service architecture with authentication,
 
 4. **Deploy**:
    ```bash
-   docker-compose up -d --build
+   docker compose up -d --build
    ```
 
 5. **Configure Nginx Proxy Manager**:
@@ -246,6 +246,8 @@ Echo TTS employs a comprehensive multi-service architecture with authentication,
 | `VITE_VIBEVOICE_API_KEY` | Vibe Voice API key | ❌ | - |
 | `VITE_CHATTERBOX_ENDPOINT` | Chatterbox OpenAI-compatible endpoint | ✅ | - |
 | `VITE_CHATTERBOX_API_KEY` | Chatterbox API key | ❌ | - |
+| `VITE_MOSSTTS_TTS_ENDPOINT` | Moss-TTS RunPod base endpoint | ✅ | - |
+| `VITE_MOSSTTS_TTS_API_KEY` | Moss-TTS RunPod API key | ✅ | - |
 
 #### Supabase Authentication
 | Variable | Description | Required | Default |
@@ -499,40 +501,36 @@ curl -X POST http://localhost:4173/api/soundfx/generate \
 echoTTS-app/
 ├── src/                    # React application source
 │   ├── contexts/          # React contexts
-│   │   ├── ThemeContext.tsx     # Theme management (light/dark mode)
-│   │   └── AuthContext.tsx      # Supabase authentication state
+│   │   └── ThemeContext.tsx     # Theme management (light/dark mode)
 │   ├── hooks/             # Custom React hooks
 │   │   ├── index.ts            # Hook exports
+│   │   ├── useAlibabaTTS.ts    # Alibaba Qwen-TTS WebSocket integration
+│   │   ├── useAlibabaVoices.ts # Alibaba voice management (create/list/delete)
 │   │   ├── useAudioPlayer.ts   # Audio playback logic
+│   │   ├── useFileUpload.ts    # File upload, validation, and S3 upload
 │   │   ├── useHistory.ts       # History + IndexedDB management
 │   │   ├── useObjectUrls.ts    # Blob URL lifecycle management
-│   │   ├── useTTS.ts           # TTS API integration
-│   │   ├── useAuth.ts          # Supabase auth integration
-│   │   ├── useVoices.ts        # Dynamic voice management
-│   │   ├── useVoiceCreation.ts # Voice upload/creation flow
 │   │   ├── useSTT.ts           # STT API integration
 │   │   ├── useSoundFX.ts       # SoundFX API integration
-│   │   └── useFileUpload.ts    # File upload, validation, and S3 upload
+│   │   ├── useStreamingTTS.ts  # SSE streaming TTS integration
+│   │   └── useTTS.ts           # Batch TTS API integration
 │   ├── components/        # Reusable UI components
-│   │   ├── VoiceRecorder.tsx   # Microphone recording component
-│   │   ├── VoiceUploader.tsx   # File upload component
-│   │   ├── VoiceApproval.tsx   # Admin approval interface
-│   │   ├── VoiceManager.tsx    # Voice list and management
 │   │   ├── STTTab.tsx          # Speech-to-Text interface
 │   │   ├── SoundFXTab.tsx      # Sound Effect generation interface
-│   │   └── VoiceChangeTab.tsx  # Voice Changing interface
+│   │   ├── VoiceChangeTab.tsx  # Voice Changing interface
+│   │   └── VoiceCreationDialog.tsx  # Alibaba voice creation dialog
 │   ├── App.tsx            # Main application component
-│   ├── config.ts          # Configuration management
-│   ├── supabaseClient.ts  # Supabase client initialization
+│   ├── config.ts          # Configuration and service definitions
 │   ├── main.tsx           # React app initialization
 │   └── vite-env.d.ts      # Vite type definitions
 ├── supabase/              # Database schema and migrations
 │   └── sql/
 │       └── 001_schema.sql  # Database schema for voices and auth
-├── docs/                  # Documentation
-│   ├── diagrams/          # Architecture diagrams
-│   ├── ADD_VOICE.md       # Voice creation feature specification
-│   └── STT.md             # Speech-to-Text feature specification
+├── docs/                  # Architecture diagrams
+│   └── diagrams/
+│       └── architecture.svg
+├── ADD_VOICE.md           # Voice creation feature specification
+├── STT.md                 # Speech-to-Text feature specification
 ├── server.js              # Express server for production
 ├── index.html             # HTML template with env injection
 ├── docker-compose.yml     # Docker deployment configuration
@@ -546,19 +544,18 @@ echoTTS-app/
 
 ### State Management
 - **Custom Hooks Architecture**: Modular, composable hooks following React best practices
-  - `useTTS`: TTS API integration with loading and error states
+  - `useTTS`: Batch TTS API integration with loading and error states
+  - `useStreamingTTS`: SSE streaming TTS with chunk-by-chunk audio playback
+  - `useAlibabaTTS`: Alibaba Qwen-TTS WebSocket integration
+  - `useAlibabaVoices`: Alibaba voice management (create, list, delete)
   - `useAudioPlayer`: Audio playback management with cleanup
-  - `useHistory`: IndexedDB persistence with atomic operations
+  - `useHistory`: IndexedDB persistence with atomic operations (stores voice, service, timestamp)
   - `useObjectUrls`: Automatic blob URL lifecycle management
-  - `useAuth`: Supabase authentication state management
-  - `useVoices`: Dynamic voice listing with real-time updates
-  - `useVoiceCreation`: Voice upload, recording, and submission workflow
   - `useSTT`: STT API integration with S3 upload and transcription
   - `useSoundFX`: SoundFX generation with text-to-sound-effect API and optional advanced decoding parameters
   - `useFileUpload`: File validation, S3 upload with progress tracking
 - **React Contexts**:
   - `ThemeContext`: Light/dark mode theming with MUI
-  - `AuthContext`: Supabase auth state and user role management
 - **IndexedDB**: Persistent storage of audio history via `idb-keyval` v6+
 - **Object URLs**: Efficient audio playback without base64 encoding
 - **Real-time Updates**: Supabase real-time subscriptions for voice approval status
@@ -589,7 +586,7 @@ echoTTS-app/
 - **TypeScript**: Full type safety with ES2022 target
 - **Memoization**: Optimized performance with `useMemo` and `useCallback`
 - **Error Boundaries**: Proper error handling throughout the application
-- **Clean Code**: Reduced component complexity (App.tsx: 286 → 198 lines)
+- **Clean Code**: Modular hook architecture keeps component logic separated from UI
 
 ### Environment Injection
 The Express server injects runtime environment variables into `index.html`:
