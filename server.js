@@ -1335,7 +1335,6 @@ app.post('/api/soundfx/generate', (req, res, next) => {
         'Authorization': `Bearer ${RUNPOD_SOUNDFX_API_KEY}`,
       },
       signal: AbortSignal.timeout(300000), // 5 minutes for cold starts
-      },
       body: JSON.stringify({
         input: {
           text: text.trim(),
