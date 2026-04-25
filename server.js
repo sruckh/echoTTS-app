@@ -293,10 +293,13 @@ app.post('/api/tts/stream', (req, res, next) => {
     } else if (service === 'chatterbox') {
       // Chatterbox: Always uses /v1/audio/speech, stream flag controls mode
       upstreamUrl = targetEndpoint;
+      // If voice is an S3/HTTP URL, pass it as audio_prompt (custom voice reference audio).
+      // Built-in voices (Dorota, Kurt, Scott, Kim) are passed as voice name for server-side lookup.
+      const isVoiceUrl = voice && (voice.startsWith('http://') || voice.startsWith('https://'));
       upstreamPayload = {
         model: model || 'tts-1',
         input: resolvedText,
-        voice,
+        ...(isVoiceUrl ? { audio_prompt: voice } : { voice }),
         stream: shouldStream,
         response_format: 'mp3'
       };
