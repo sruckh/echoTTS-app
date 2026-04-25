@@ -205,7 +205,10 @@ app.post('/api/alibaba/voice/delete', async (req, res) => {
 // ============================================================================
 // Streaming TTS Proxy
 // ============================================================================
-app.post('/api/tts/stream', async (req, res) => {
+app.post('/api/tts/stream', (req, res, next) => {
+  req.setTimeout(300000); // 5 minutes for RunPod cold starts
+  next();
+}, async (req, res) => {
   try {
     const { service, text, voice, stream, input, model } = req.body;
     const resolvedText = input || text;
