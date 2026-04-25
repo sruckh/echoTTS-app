@@ -1303,7 +1303,10 @@ app.post('/api/stt/transcribe', async (req, res) => {
 const RUNPOD_SOUNDFX_ENDPOINT = process.env.RUNPOD_SOUNDFX_ENDPOINT;
 const RUNPOD_SOUNDFX_API_KEY = process.env.RUNPOD_SOUNDFX_API_KEY;
 
-app.post('/api/soundfx/generate', async (req, res) => {
+app.post('/api/soundfx/generate', (req, res, next) => {
+  req.setTimeout(300000); // 5 minutes for RunPod cold starts
+  next();
+}, async (req, res) => {
   try {
     const { text, duration_seconds } = req.body;
 
@@ -1327,6 +1330,8 @@ app.post('/api/soundfx/generate', async (req, res) => {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${RUNPOD_SOUNDFX_API_KEY}`,
+      },
+      signal: AbortSignal.timeout(300000), // 5 minutes for cold starts
       },
       body: JSON.stringify({
         input: {
