@@ -4,7 +4,7 @@
 [![React](https://img.shields.io/badge/React-18.2+-61DAFB.svg)](https://reactjs.org/)
 [![Vite](https://img.shields.io/badge/Vite-5.0+-646CFF.svg)](https://vitejs.dev/)
 
-Echo: Multi-Model Voice Studio provides a comprehensive platform for converting text to speech, speech to text, and voice changing using multiple state-of-the-art models including EchoTTS, Qwen3-TTS (opensource), FishAudio S1-mini, IndexTTS2, Vibe Voice, Chatterbox, and Alibaba Qwen-TTS. Features include dynamic voice creation, real-time streaming (for supported models), user authentication via Supabase, STT transcription with timestamp support, voice changing with LinaCodec VC, and persistent audio history.
+Echo: Multi-Model Voice Studio provides a comprehensive platform for converting text to speech, speech to text, voice changing, and sound effect generation using multiple state-of-the-art models including EchoTTS, Qwen3-TTS (opensource), FishAudio S1-mini, IndexTTS2, Vibe Voice, Chatterbox, Alibaba Qwen-TTS, and MossSFX. Features include dynamic voice creation, real-time streaming (for supported models), user authentication via Supabase, STT transcription with timestamp support, voice changing with LinaCodec VC, AI-powered sound effect generation with MOSS-SoundEffect, and persistent audio history.
 
 ## ✨ Features
 
@@ -41,6 +41,15 @@ Echo: Multi-Model Voice Studio provides a comprehensive platform for converting 
 - **⏳ Progress Tracking**: Real-time upload and processing progress indicators
 - **🔓 Open Access**: No authentication required for voice changing
 
+### SoundFX Features
+- **🔊 Text-to-Sound Effect**: Generate ambient soundscapes and sound effects from text descriptions
+- **⏱️ Duration Control**: Specify target duration from 1-30 seconds via slider
+- **🤖 RunPod Serverless**: MOSS-SoundEffect (8B) model for high-fidelity audio generation
+- **🎵 WAV Output**: Native 24kHz WAV output with inline audio player
+- **💾 Download Support**: Download generated sound effects as WAV files
+- **📊 Generation Metadata**: Display actual duration and generation time
+- **🔓 Open Access**: No authentication required for sound effect generation
+
 ### Platform Features
 - **🔐 Supabase Auth**: Secure user authentication with role-based access control (TTS only)
 - **🗃️ Database-Backed**: PostgreSQL-backed voice metadata and request tracking
@@ -58,12 +67,12 @@ Echo: Multi-Model Voice Studio provides a comprehensive platform for converting 
 Echo TTS employs a comprehensive multi-service architecture with authentication, database storage, and dynamic voice management:
 
 ### Core Services
-- **Frontend** (React/TypeScript): Tab-based UI with TTS, STT, Voice Changing, and voice management
-- **Express Server** (port 4173): Serves static files, injects runtime env vars, STT/Voice Changing proxy endpoints
+- **Frontend** (React/TypeScript): Tab-based UI with TTS, STT, Voice Changing, SoundFX, and voice management
+- **Express Server** (port 4173): Serves static files, injects runtime env vars, STT/Voice Changing/SoundFX proxy endpoints
 - **TTS Bridge Service**: OpenAI-compatible API endpoint with voice management and Supabase integration
-- **RunPod Serverless**: TTS audio processing, STT transcription (NVIDIA Parakeet), Voice Changing (LinaCodec VC)
+- **RunPod Serverless**: TTS audio processing, STT transcription (NVIDIA Parakeet), Voice Changing (LinaCodec VC), SoundFX (MOSS-SoundEffect)
 - **Supabase**: Authentication, PostgreSQL database, and real-time subscriptions
-- **S3 Storage**: Voice files, STT/Voice Changing audio uploads with presigned URLs, lifecycle management
+- **S3 Storage**: Voice files, STT/Voice Changing audio uploads with presigned URLs, SoundFX output delivery, lifecycle management
 
 ### Deployment Architecture
 - **Docker Container**: Runs on `shared_net` network without host port exposure
@@ -92,6 +101,13 @@ Echo TTS employs a comprehensive multi-service architecture with authentication,
 4. **S3 Upload**: Both audio files uploaded directly to S3 via presigned URLs
 5. **Processing**: Server proxies request to RunPod Serverless (LinaCodec VC)
 6. **Result**: Converted audio returned as presigned URL for playback and download
+
+### SoundFX Pipeline
+1. **Input**: User enters a text description and optional duration (1-30 seconds)
+2. **Proxy**: Server forwards request to RunPod Serverless (`/runsync`) with Bearer token
+3. **Generation**: MOSS-SoundEffect model generates audio from text description
+4. **Upload**: MossSFX worker uploads WAV to its own S3 bucket
+5. **Result**: Presigned URL returned for inline playback and download
 
 ### Data Flow
 1. User input flows through React components with authentication context
@@ -272,6 +288,12 @@ Echo TTS employs a comprehensive multi-service architecture with authentication,
 | `S3_VC_ENDPOINT` | S3 endpoint URL | ✅ | - |
 | `VOICE_CHANGE_RUNPOD_ENDPOINT` | RunPod Serverless endpoint for LinaCodec VC | ✅ | - |
 | `VOICE_CHANGE_RUNPOD_API_KEY` | RunPod API key (server-side only) | ✅ | - |
+
+#### SoundFX Configuration (Server-side only)
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `RUNPOD_SOUNDFX_ENDPOINT` | RunPod Serverless endpoint for MOSS-SoundEffect | ✅ | - |
+| `RUNPOD_SOUNDFX_API_KEY` | RunPod API key (server-side only) | ✅ | - |
 
 #### Migration Note
 The `VITE_OPEN_AI_TTS_VOICES` variable is deprecated. Voice configuration is now managed dynamically through the Supabase database and bridge API.
@@ -462,6 +484,13 @@ curl -X POST http://localhost:4173/api/voice-change \
   -d '{"source_key":"source-uuid","target_key":"target-uuid","output_format":"mp3"}'
 ```
 
+### Test SoundFX Endpoint
+```bash
+curl -X POST http://localhost:4173/api/soundfx/generate \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Thunder rumbling in the distance with heavy rain","duration_seconds":5}'
+```
+
 ## 📁 Project Structure
 
 ```
@@ -480,6 +509,7 @@ echoTTS-app/
 │   │   ├── useVoices.ts        # Dynamic voice management
 │   │   ├── useVoiceCreation.ts # Voice upload/creation flow
 │   │   ├── useSTT.ts           # STT API integration
+│   │   ├── useSoundFX.ts       # SoundFX API integration
 │   │   └── useFileUpload.ts    # File upload, validation, and S3 upload
 │   ├── components/        # Reusable UI components
 │   │   ├── VoiceRecorder.tsx   # Microphone recording component
@@ -487,6 +517,7 @@ echoTTS-app/
 │   │   ├── VoiceApproval.tsx   # Admin approval interface
 │   │   ├── VoiceManager.tsx    # Voice list and management
 │   │   ├── STTTab.tsx          # Speech-to-Text interface
+│   │   ├── SoundFXTab.tsx      # Sound Effect generation interface
 │   │   └── VoiceChangeTab.tsx  # Voice Changing interface
 │   ├── App.tsx            # Main application component
 │   ├── config.ts          # Configuration management
@@ -521,6 +552,7 @@ echoTTS-app/
   - `useVoices`: Dynamic voice listing with real-time updates
   - `useVoiceCreation`: Voice upload, recording, and submission workflow
   - `useSTT`: STT API integration with S3 upload and transcription
+  - `useSoundFX`: SoundFX generation with text-to-sound-effect API
   - `useFileUpload`: File validation, S3 upload with progress tracking
 - **React Contexts**:
   - `ThemeContext`: Light/dark mode theming with MUI
@@ -610,6 +642,17 @@ The voice changing feature enables users to transform source audio content with 
    - `POST /api/voice-change`: Process voice conversion via RunPod
 4. **Audio Formats**: Supports .m4a, .mp3, .wav, .ogg, .opus, and .webm (recordings)
 5. **No Authentication**: Open access like STT functionality
+
+### SoundFX Feature Development
+
+The SoundFX feature generates sound effects from text descriptions using the MOSS-SoundEffect (8B) model via RunPod Serverless. Key implementation details:
+
+1. **Frontend Component**: `SoundFXTab.tsx` provides text input, duration slider, and audio playback
+2. **API Endpoint**: `POST /api/soundfx/generate` — server-side proxy to RunPod with Bearer token auth
+3. **Output**: 24kHz WAV delivered via S3 presigned URL from the MossSFX worker
+4. **Duration Control**: 1-30 seconds via slider, clamped server-side
+5. **No Authentication**: Open access like STT and Voice Changing
+6. **No Client-Side S3**: The MossSFX worker handles its own S3 upload — the app only receives the presigned URL
 
 ### Setting Up Development Environment
 

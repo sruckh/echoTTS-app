@@ -1296,7 +1296,75 @@ app.post('/api/stt/transcribe', async (req, res) => {
   }
 });
 
-// Serve static assets (except index.html which we handle specifically for injection, 
+// ============================================================================
+// SoundFX (MossSFX) Endpoints
+// ============================================================================
+
+const RUNPOD_SOUNDFX_ENDPOINT = process.env.RUNPOD_SOUNDFX_ENDPOINT;
+const RUNPOD_SOUNDFX_API_KEY = process.env.RUNPOD_SOUNDFX_API_KEY;
+
+app.post('/api/soundfx/generate', async (req, res) => {
+  try {
+    const { text, duration_seconds } = req.body;
+
+    if (!text || typeof text !== 'string' || !text.trim()) {
+      return res.status(400).json({ error: 'Text description is required' });
+    }
+
+    if (!RUNPOD_SOUNDFX_ENDPOINT || !RUNPOD_SOUNDFX_API_KEY) {
+      console.error('[SoundFX] Missing RunPod configuration');
+      return res.status(500).json({ error: 'SoundFX service not configured' });
+    }
+
+    const duration = Math.max(1, Math.min(30, parseInt(duration_seconds, 10) || 10));
+    const runpodUrl = RUNPOD_SOUNDFX_ENDPOINT.replace(/\/$/, '') + '/runsync';
+
+    console.log(`[SoundFX] Generating: "${text.substring(0, 80)}" (${duration}s)`);
+    const startTime = Date.now();
+
+    const response = await fetch(runpodUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${RUNPOD_SOUNDFX_API_KEY}`,
+      },
+      body: JSON.stringify({
+        input: {
+          text: text.trim(),
+          duration_seconds: duration,
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[SoundFX] RunPod error (${response.status}):`, errorText);
+      return res.status(response.status).json({ error: 'Sound effect generation failed' });
+    }
+
+    const data = await response.json();
+    const elapsed = Date.now() - startTime;
+    const output = Array.isArray(data?.output) ? data.output[0] : (data?.output || data);
+
+    if (!output?.url) {
+      console.error(`[SoundFX] Response missing URL (${elapsed}ms):`, JSON.stringify(data));
+      return res.status(502).json({ error: 'SoundFX response missing audio URL' });
+    }
+
+    console.log(`[SoundFX] Success (${elapsed}ms): ${output.filename}`);
+    res.json({
+      url: output.url,
+      filename: output.filename,
+      metadata: output.metadata || {},
+    });
+
+  } catch (error) {
+    console.error('[SoundFX] Error:', error);
+    res.status(500).json({ error: 'SoundFX service unavailable' });
+  }
+});
+
+// Serve static assets (except index.html which we handle specifically for injection,
 // though typical static middleware might grab it first if we aren't careful.
 // We can serve assets from dist/assets specifically, or just serve dist with index:false)
 app.use(express.static(DIST_DIR, { index: false }));

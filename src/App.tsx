@@ -18,6 +18,7 @@ import { useAlibabaVoices, AlibabaVoice } from './hooks/useAlibabaVoices';
 import { VoiceCreationDialog } from './components/VoiceCreationDialog';
 import { STTTab } from './components/STTTab';
 import { VoiceChangeTab } from './components/VoiceChangeTab';
+import { SoundFXTab } from './components/SoundFXTab';
 
 function App() {
   const { mode, toggleMode } = useColorMode();
@@ -46,7 +47,7 @@ function App() {
   const [voice, setVoice] = useState(config.voices[0]?.id || '');
   const [selectedService, setSelectedService] = useState<TTSService | undefined>(config.services[0]);
   const [voiceDialogOpen, setVoiceDialogOpen] = useState(false);
-  const [currentTab, setCurrentTab] = useState<'tts' | 'stt' | 'voice-change'>('tts');
+  const [currentTab, setCurrentTab] = useState<'tts' | 'stt' | 'voice-change' | 'soundfx'>('tts');
   
   // Add streaming preference state
   const [useStreaming, setUseStreaming] = useState(() => {
@@ -228,7 +229,7 @@ function App() {
     }
   }, [streamingSupported, useStreaming]);
 
-  const handleTabChange = (_event: React.SyntheticEvent, newValue: 'tts' | 'stt' | 'voice-change') => {
+  const handleTabChange = (_event: React.SyntheticEvent, newValue: 'tts' | 'stt' | 'voice-change' | 'soundfx') => {
     setCurrentTab(newValue);
   };
 
@@ -291,6 +292,7 @@ function App() {
           <Tab label="Text to Speech" value="tts" />
           <Tab label="Voice Changing" value="voice-change" />
           <Tab label="Speech to Text" value="stt" />
+          <Tab label="Sound FX" value="soundfx" />
         </Tabs>
       </Box>
 
@@ -504,6 +506,11 @@ function App() {
       {/* Voice Change Tab Content */}
       <Box sx={{ display: currentTab === 'voice-change' ? 'block' : 'none' }}>
         <VoiceChangeTab />
+      </Box>
+
+      {/* SoundFX Tab Content */}
+      <Box sx={{ display: currentTab === 'soundfx' ? 'block' : 'none' }}>
+        <SoundFXTab />
       </Box>
     </Container>
   );

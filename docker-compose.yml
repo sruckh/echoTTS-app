@@ -74,6 +74,10 @@ services:
       - S3_VC_ACCESS_KEY=${S3_VC_ACCESS_KEY:-}
       - S3_VC_SECRET_KEY=${S3_VC_SECRET_KEY:-}
       - S3_VC_ENDPOINT=${S3_VC_ENDPOINT:-}
+
+      # SoundFX (MossSFX RunPod Serverless) - Server-side only
+      - RUNPOD_SOUNDFX_ENDPOINT=${RUNPOD_SOUNDFX_ENDPOINT:-}
+      - RUNPOD_SOUNDFX_API_KEY=${RUNPOD_SOUNDFX_API_KEY:-}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:4173/health"]
       interval: 30s
